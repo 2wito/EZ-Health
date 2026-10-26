@@ -2,7 +2,7 @@
 
 **Apple Health analytics with an AI training coach.** Import your iPhone's full Health export (or stream it daily from an iOS automation) and get iOS-style dashboards for heart rate, HRV, sleep stages, activity patterns and workouts, plus a coach that plans running and strength sessions from your actual recovery data.
 
-![Next.js 15](https://img.shields.io/badge/Next.js_15-App_Router-000?logo=nextdotjs) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white) ![Prisma 7](https://img.shields.io/badge/Prisma_7-PostgreSQL-2d3748?logo=prisma) ![Tailwind v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white) ![Vercel AI SDK](https://img.shields.io/badge/Vercel_AI_SDK-OpenAI_|_Gemini-000?logo=vercel)
+[![CI](https://github.com/2wito/EZ-Health/actions/workflows/ci.yml/badge.svg)](https://github.com/2wito/EZ-Health/actions/workflows/ci.yml) ![Next.js 15](https://img.shields.io/badge/Next.js_15-App_Router-000?logo=nextdotjs) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white) ![Prisma 7](https://img.shields.io/badge/Prisma_7-PostgreSQL-2d3748?logo=prisma) ![Tailwind v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white) ![Vercel AI SDK](https://img.shields.io/badge/Vercel_AI_SDK-OpenAI_|_Gemini-000?logo=vercel)
 
 **Live demo: [ez-health-six.vercel.app](https://ez-health-six.vercel.app)** (generated demo data; the AI chat is switched off on the public demo)
 
@@ -106,6 +106,16 @@ Automations → New → **REST API**
 - Sleep: either aggregated or unaggregated works; **unaggregated** additionally stores stage segments for the sleep timeline.
 
 The endpoint is idempotent: re-sent windows overwrite existing samples rather than duplicating them.
+
+## Tests
+
+```bash
+npm test          # Vitest, about half a second
+npm run typecheck
+npm run lint
+```
+
+Unit tests cover the logic the dashboards depend on: the scores and trend verdicts (`src/lib/analytics`), the streaming XML parser fed in small chunks the way a real stream arrives, webhook normalization against `scripts/sample-payload.json` (timezones, unit conversion, v1 and v2 payloads), locale formatting in English and Hebrew, and a check that the Hebrew translation has every English key. GitHub Actions runs type check, lint, tests and a production build on every push and pull request.
 
 ## Deploying to Vercel with Prisma Postgres
 

@@ -15,7 +15,9 @@
     "ingest:sample": "tsx scripts/send-sample.mts",
     "import:export": "tsx scripts/import-export.mts",
     "demo:import": "tsx scripts/demo-data.mts import",
-    "demo:clear": "tsx scripts/demo-data.mts clear"
+    "demo:clear": "tsx scripts/demo-data.mts clear",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.105",
@@ -54,7 +56,8 @@
     "prisma": "^7.10.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "4.1.11"
   },
   "allowScripts": {
     "prisma@7.10.1": true,
