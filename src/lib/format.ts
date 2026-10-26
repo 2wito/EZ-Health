@@ -3,6 +3,7 @@
 // Every formatter is bound to a locale: `createFormat("he")` gives Hebrew words
 // and the 24-hour clock used in Israel.
 
+import type { Granularity } from "@/lib/analytics/range";
 import { intlTag, type Locale } from "@/lib/i18n/config";
 
 const DAY_MS = 86_400_000;
@@ -12,8 +13,8 @@ const shift = (date: Date, tzOffsetMin: number) => new Date(date.getTime() + tzO
 const dayNumber = (shifted: Date) => Math.floor(shifted.getTime() / DAY_MS);
 
 const WORDS = {
-  en: { today: "Today", yesterday: "Yesterday", justNow: "just now", hr: "hr", min: "min", h: "h", m: "m" },
-  he: { today: "היום", yesterday: "אתמול", justNow: "הרגע", hr: "שע׳", min: "דק׳", h: " ש׳", m: " ד׳" },
+  en: { today: "Today", yesterday: "Yesterday", justNow: "just now", hr: "hr", min: "min", h: "h", m: "m", weekOf: (d: string) => `Week of ${d}` },
+  he: { today: "היום", yesterday: "אתמול", justNow: "הרגע", hr: "שע׳", min: "דק׳", h: " ש׳", m: " ד׳", weekOf: (d: string) => `השבוע של ${d}` },
 } as const;
 
 export type Format = ReturnType<typeof buildFormat>;
@@ -39,6 +40,9 @@ function buildFormat(locale: Locale) {
   const chartWeekday = new Intl.DateTimeFormat(tag, { weekday: "short", timeZone: "UTC" });
   const chartFull = new Intl.DateTimeFormat(tag, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
   const monthYearFmt = new Intl.DateTimeFormat(tag, { month: "short", year: "numeric" });
+  const monthShortFmt = new Intl.DateTimeFormat(tag, { month: "short", year: "numeric", timeZone: "UTC" });
+  const monthLongFmt = new Intl.DateTimeFormat(tag, { month: "long", year: "numeric", timeZone: "UTC" });
+  const dateYearFmt = new Intl.DateTimeFormat(tag, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   const todayFmt = new Intl.DateTimeFormat(tag, { weekday: "long", month: "long", day: "numeric" });
   const rtf = new Intl.RelativeTimeFormat(tag, { numeric: "auto" });
   const compactFmt = new Intl.NumberFormat(tag, { notation: "compact", maximumFractionDigits: 1 });
@@ -140,6 +144,20 @@ function buildFormat(locale: Locale) {
       if (long) return chartFull.format(d);
       return windowDays <= 7 ? chartWeekday.format(d) : shortDateFmt.format(d);
     },
+
+    /**
+     * Label for a chart row that may be a day, a week (its Sunday) or a month
+     * (its 1st). `long` is for tooltips and tables.
+     */
+    period: (day: string, g: Granularity, windowDays: number, long = false) => {
+      const d = new Date(`${day}T00:00:00Z`);
+      if (g === "month") return (long ? monthLongFmt : monthShortFmt).format(d);
+      if (g === "week") return long ? w.weekOf(shortDateFmt.format(d)) : shortDateFmt.format(d);
+      if (long) return chartFull.format(d);
+      return windowDays <= 7 ? chartWeekday.format(d) : shortDateFmt.format(d);
+    },
+    /** "Jun 27, 2026": for spans that cross years. */
+    dateWithYear: (day: string) => dateYearFmt.format(new Date(`${day}T00:00:00Z`)),
 
     monthYear: (iso: string) => monthYearFmt.format(new Date(iso)),
     /** "Monday, October 26" in the viewer's own timezone. */

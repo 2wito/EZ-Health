@@ -1,8 +1,8 @@
 import "server-only";
 import { connection } from "next/server";
 import { isRun, metresPerBeat, paceMinPerKm } from "@/lib/analytics/activity";
-import { inWindow, isoDay, RANGES, windowEnding, type RangeKey } from "@/lib/analytics/range";
-import { computeTrend, mean, type Trend } from "@/lib/analytics/trend";
+import { inWindow, isoDay, rangeWindow, type DayWindow, type RangeKey } from "@/lib/analytics/range";
+import { mean, splitByWindow, windowTrend, type Trend } from "@/lib/analytics/trend";
 import { prisma } from "@/lib/prisma";
 import { getEvaluation, type Evaluation } from "./evaluation";
 
@@ -33,6 +33,7 @@ export interface ActivityData {
   range: RangeKey;
   start: string;
   end: string;
+  comparison: DayWindow["comparison"];
   workouts: WorkoutRow[];
   heatmap: HeatCell[];
   /** Average active kcal per day, by weekday (days with data only). */
@@ -54,17 +55,22 @@ export async function getActivityData(range: RangeKey): Promise<ActivityResult> 
 }
 
 async function load(range: RangeKey): Promise<ActivityData | null> {
-  const [anchor] = await prisma.$queryRaw<{ d: Date | null }[]>`
-    SELECT GREATEST(
-      (SELECT max("localDate") FROM "MetricSample" WHERE type = 'ACTIVE_ENERGY'::"MetricType"),
-      (SELECT max("localDate") FROM "Workout")
-    ) AS d`;
-  if (!anchor?.d) return null;
-  const w = windowEnding(anchor.d, RANGES[range]);
+  const [bounds] = await prisma.$queryRaw<{ first: Date | null; last: Date | null }[]>`
+    SELECT
+      LEAST(
+        (SELECT min("localDate") FROM "MetricSample" WHERE type = 'ACTIVE_ENERGY'::"MetricType"),
+        (SELECT min("localDate") FROM "Workout")
+      ) AS first,
+      GREATEST(
+        (SELECT max("localDate") FROM "MetricSample" WHERE type = 'ACTIVE_ENERGY'::"MetricType"),
+        (SELECT max("localDate") FROM "Workout")
+      ) AS last`;
+  if (!bounds?.last) return null;
+  const w = rangeWindow(range, bounds.last, bounds.first);
 
-  const [workouts, hours, evaluation, first] = await Promise.all([
+  const [workouts, hours, evaluation] = await Promise.all([
     prisma.workout.findMany({
-      where: { localDate: { gte: w.prevStart, lte: w.end } },
+      where: { localDate: { gte: w.from, lte: w.end } },
       orderBy: { start: "desc" },
     }),
     // Hourly active energy; where several sources cover an hour (Watch + iPhone),
@@ -74,20 +80,15 @@ async function load(range: RangeKey): Promise<ActivityData | null> {
         SELECT "localDate" AS day, "localHour" AS hour, "localWeekday" AS weekday, source, sum(qty) AS kcal
         FROM "MetricSample"
         WHERE type = 'ACTIVE_ENERGY'::"MetricType" AND qty IS NOT NULL
-          AND "localDate" BETWEEN ${isoDay(w.prevStart)}::date AND ${isoDay(w.end)}::date
+          AND "localDate" BETWEEN ${isoDay(w.from)}::date AND ${isoDay(w.end)}::date
         GROUP BY 1, 2, 3, 4
       ) per_source
       GROUP BY 1, 2, 3`,
     getEvaluation(),
-    prisma.$queryRaw<{ d: Date | null }[]>`
-      SELECT LEAST(
-        (SELECT min("localDate") FROM "MetricSample" WHERE type = 'ACTIVE_ENERGY'::"MetricType"),
-        (SELECT min("localDate") FROM "Workout")
-      ) AS d`,
   ]);
   // Totals (workout count, minutes) are only comparable when data covers the
-  // whole previous window; a half-covered window would look like a big jump.
-  const prevCovered = !!first[0]?.d && isoDay(first[0].d) <= isoDay(w.prevStart);
+  // whole comparison span; a half-covered window would look like a big jump.
+  const prevCovered = !!bounds.first && isoDay(bounds.first) <= isoDay(w.prevStart);
 
   const rows: WorkoutRow[] = workouts.map((wo) => ({
     id: wo.id,
@@ -105,6 +106,7 @@ async function load(range: RangeKey): Promise<ActivityData | null> {
     efficiency: isRun(wo.name) ? metresPerBeat(wo.avgSpeedKmh, wo.avgHr) : null,
   }));
   const current = rows.filter((r) => inWindow(r.day, w.start, w.end));
+  const recent = rows.filter((r) => inWindow(r.day, w.recentStart, w.recentEnd));
   const previous = rows.filter((r) => inWindow(r.day, w.prevStart, w.prevEnd));
 
   // Daily active-energy totals, current vs previous window.
@@ -115,8 +117,6 @@ async function load(range: RangeKey): Promise<ActivityData | null> {
     t.kcal += h.kcal;
     dayTotals.set(day, t);
   }
-  const totalsIn = (from: Date, to: Date) =>
-    [...dayTotals].filter(([day]) => inWindow(day, from, to)).map(([, t]) => t.kcal);
 
   // Heatmap: average kcal per (weekday, hour), dividing by how many of that
   // weekday had any data, so quiet hours count as zero rather than missing.
@@ -150,24 +150,28 @@ async function load(range: RangeKey): Promise<ActivityData | null> {
     range,
     start: isoDay(w.start),
     end: isoDay(w.end),
+    comparison: w.comparison,
     workouts: current,
     heatmap,
     byWeekday,
     trends: {
       // Totals swing with the calendar (a 30-day window holds 4 or 5 Saturdays),
       // so count a change only past ~10% of the previous period.
-      count: computeTrend([current.length], prevCovered ? [previous.length] : [], {
+      count: windowTrend([current.length], [recent.length], prevCovered ? [previous.length] : [], {
         better: "higher",
         threshold: Math.max(2, previous.length * 0.1),
         minPoints: 1,
       }),
-      minutes: computeTrend(sumMinutes(current), prevCovered ? sumMinutes(previous) : [], {
+      minutes: windowTrend(sumMinutes(current), sumMinutes(recent), prevCovered ? sumMinutes(previous) : [], {
         better: "higher",
         threshold: Math.max(20, sumMinutes(previous)[0] * 0.1),
         minPoints: 1,
       }),
-      energy: computeTrend(totalsIn(w.start, w.end), totalsIn(w.prevStart, w.prevEnd), { better: "higher", threshold: 25 }),
-      pace: computeTrend(runPaces(current), runPaces(previous), { better: "lower", threshold: 0.1 }),
+      energy: windowTrend(
+        ...splitByWindow([...dayTotals].map(([day, t]) => [day, t.kcal] as const), w),
+        { better: "higher", threshold: 25 },
+      ),
+      pace: windowTrend(runPaces(current), runPaces(recent), runPaces(previous), { better: "lower", threshold: 0.1 }),
     },
     evaluation,
   };

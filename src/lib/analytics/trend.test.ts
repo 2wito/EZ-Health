@@ -1,5 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { computeTrend, mean } from "./trend";
+import { computeTrend, mean, splitByWindow, windowTrend } from "./trend";
+
+describe("windowTrend / splitByWindow", () => {
+  const D = (s: string) => new Date(`${s}T00:00:00Z`);
+  // All time: four days, the second half compared with the first.
+  const w = {
+    start: D("2026-10-01"),
+    end: D("2026-10-04"),
+    prevStart: D("2026-10-01"),
+    prevEnd: D("2026-10-02"),
+    recentStart: D("2026-10-03"),
+    recentEnd: D("2026-10-04"),
+  };
+
+  it("splits points into shown, recent and previous spans", () => {
+    const points = [
+      ["2026-10-01", 60],
+      ["2026-10-02", 58],
+      ["2026-10-03", 55],
+      ["2026-10-04", 53],
+      ["2026-09-30", 99], // outside the window
+    ] as const;
+    expect(splitByWindow(points, w)).toEqual([
+      [60, 58, 55, 53],
+      [55, 53],
+      [60, 58],
+    ]);
+  });
+
+  it("headlines the mean of everything shown, with the change between the spans", () => {
+    const t = windowTrend([60, 58, 55, 53], [55, 53], [60, 58], { better: "lower", threshold: 1 });
+    expect(t.current).toBe(56.5);
+    expect(t.delta).toBe(-5);
+    expect(t.verdict).toBe("improving");
+  });
+});
 
 describe("mean", () => {
   it("averages, and is null for no values", () => {

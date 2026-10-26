@@ -1,9 +1,19 @@
 import "server-only";
 import { connection } from "next/server";
 import type { SleepStageType } from "@/generated/prisma/enums";
-import { eachDay, inWindow, isoDay, RANGES, windowEnding, type RangeKey } from "@/lib/analytics/range";
+import {
+  bucketStart,
+  eachDay,
+  granularityFor,
+  inWindow,
+  isoDay,
+  rangeWindow,
+  type DayWindow,
+  type Granularity,
+  type RangeKey,
+} from "@/lib/analytics/range";
 import { consistencyScore, minutesSinceNoon, sleepScore } from "@/lib/analytics/sleep";
-import { computeTrend, mean, type Trend } from "@/lib/analytics/trend";
+import { mean, splitByWindow, windowTrend, type Trend } from "@/lib/analytics/trend";
 import { prisma } from "@/lib/prisma";
 
 export type SleepNight = {
@@ -31,7 +41,10 @@ export interface SleepData {
   range: RangeKey;
   start: string;
   end: string;
-  /** Every day in the window; null where no night was recorded. */
+  comparison: DayWindow["comparison"];
+  /** Calendar rows: days, or week/month averages for long windows. */
+  granularity: Granularity;
+  /** Every day (or week/month) in the window; null where no night was recorded. */
   calendar: { day: string; night: SleepNight | null }[];
   nights: SleepNight[];
   lastNight: { night: SleepNight; segments: StageSegment[] } | null;
@@ -69,13 +82,13 @@ interface NightRow {
 }
 
 async function load(range: RangeKey): Promise<SleepData | null> {
-  const latest = await prisma.sleepSession.findFirst({
+  const { _min, _max } = await prisma.sleepSession.aggregate({
     where: { totalSleep: { gt: 0 } },
-    orderBy: { date: "desc" },
-    select: { date: true },
+    _min: { date: true },
+    _max: { date: true },
   });
-  if (!latest) return null;
-  const w = windowEnding(latest.date, RANGES[range]);
+  if (!_max.date) return null;
+  const w = rangeWindow(range, _max.date, _min.date);
 
   // Several sources can log a night (iPhone "In Bed", Watch stages, other apps):
   // keep the one that measured the most sleep.
@@ -84,7 +97,7 @@ async function load(range: RangeKey): Promise<SleepData | null> {
       id, "date", "tzOffsetMin", "sleepStart", "sleepEnd", "inBedStart", "inBedEnd", "totalSleep",
       "coreHours", "deepHours", "remHours", "awakeHours", "asleepHours"
     FROM "SleepSession"
-    WHERE "totalSleep" > 0 AND "date" BETWEEN ${isoDay(w.prevStart)}::date AND ${isoDay(w.end)}::date
+    WHERE "totalSleep" > 0 AND "date" BETWEEN ${isoDay(w.from)}::date AND ${isoDay(w.end)}::date
     ORDER BY "date", "totalSleep" DESC`;
 
   const toNight = (r: NightRow): SleepNight => {
@@ -105,15 +118,26 @@ async function load(range: RangeKey): Promise<SleepData | null> {
   };
 
   const current = rows.filter((r) => inWindow(r.date, w.start, w.end));
-  const previous = rows.filter((r) => inWindow(r.date, w.prevStart, w.prevEnd));
+  const allNights = rows.map(toNight);
   const nights = current.map(toNight);
-  const prevNights = previous.map(toNight);
+  const nightsIn = (from: Date, to: Date) => allNights.filter((n) => inWindow(n.day, from, to));
 
   const pick = (ns: SleepNight[], f: (n: SleepNight) => number | null) =>
     ns.map(f).filter((v): v is number => v !== null);
   const consistencyOf = (ns: SleepNight[]) => consistencyScore(pick(ns, (n) => n.bed), pick(ns, (n) => n.wake));
   const consistency = consistencyOf(nights);
-  const prevConsistency = consistencyOf(prevNights);
+  const asList = (v: number | null) => (v === null ? [] : [v]);
+  const trend = (f: (n: SleepNight) => number | null, opts: Parameters<typeof windowTrend>[3]) =>
+    windowTrend(
+      ...splitByWindow(
+        allNights.flatMap((n) => {
+          const v = f(n);
+          return v === null ? [] : [[n.day, v] as const];
+        }),
+        w,
+      ),
+      opts,
+    );
 
   // Stage timeline for the most recent night (needs per-stage export data).
   const lastRow = current.at(-1);
@@ -136,12 +160,18 @@ async function load(range: RangeKey): Promise<SleepData | null> {
 
   const avgOf = (f: (n: SleepNight) => number) => mean(nights.map(f)) ?? 0;
   const byDay = new Map(nights.map((n) => [n.day, n]));
+  const granularity = granularityFor(w.days);
 
   return {
     range,
     start: isoDay(w.start),
     end: isoDay(w.end),
-    calendar: eachDay(w.start, w.end).map((day) => ({ day, night: byDay.get(day) ?? null })),
+    comparison: w.comparison,
+    granularity,
+    calendar: bucketCalendar(
+      eachDay(w.start, w.end).map((day) => ({ day, night: byDay.get(day) ?? null })),
+      granularity,
+    ),
     nights,
     lastNight,
     averages: nights.length
@@ -156,15 +186,45 @@ async function load(range: RangeKey): Promise<SleepData | null> {
       : null,
     consistency,
     trends: {
-      score: computeTrend(pick(nights, (n) => n.score), pick(prevNights, (n) => n.score), { better: "higher", threshold: 3 }),
-      duration: computeTrend(pick(nights, (n) => n.total), pick(prevNights, (n) => n.total), { better: "higher", threshold: 0.25 }),
-      bed: computeTrend(pick(nights, (n) => n.bed), pick(prevNights, (n) => n.bed), { better: "neutral", threshold: 15 }),
-      wake: computeTrend(pick(nights, (n) => n.wake), pick(prevNights, (n) => n.wake), { better: "neutral", threshold: 15 }),
-      consistency: computeTrend(
-        consistency === null ? [] : [consistency],
-        prevConsistency === null ? [] : [prevConsistency],
+      score: trend((n) => n.score, { better: "higher", threshold: 3 }),
+      duration: trend((n) => n.total, { better: "higher", threshold: 0.25 }),
+      bed: trend((n) => n.bed, { better: "neutral", threshold: 15 }),
+      wake: trend((n) => n.wake, { better: "neutral", threshold: 15 }),
+      consistency: windowTrend(
+        asList(consistency),
+        asList(consistencyOf(nightsIn(w.recentStart, w.recentEnd))),
+        asList(consistencyOf(nightsIn(w.prevStart, w.prevEnd))),
         { better: "higher", threshold: 5, minPoints: 1 },
       ),
     },
   };
+}
+
+/** Week or month rows for long windows: each field is the mean of the nights recorded in it. */
+function bucketCalendar(days: { day: string; night: SleepNight | null }[], g: Granularity) {
+  if (g === "day") return days;
+  const groups = new Map<string, SleepNight[]>();
+  for (const { day, night } of days) {
+    const key = bucketStart(day, g);
+    const group = groups.get(key) ?? [];
+    if (night) group.push(night);
+    groups.set(key, group);
+  }
+  return [...groups].map(([day, ns]) => {
+    if (!ns.length) return { day, night: null };
+    const avg = (f: (n: SleepNight) => number | null) => mean(ns.map(f).filter((v): v is number => v !== null));
+    const night: SleepNight = {
+      day,
+      bed: avg((n) => n.bed),
+      wake: avg((n) => n.wake),
+      total: avg((n) => n.total) ?? 0,
+      deep: avg((n) => n.deep) ?? 0,
+      core: avg((n) => n.core) ?? 0,
+      rem: avg((n) => n.rem) ?? 0,
+      awake: avg((n) => n.awake) ?? 0,
+      unspecified: avg((n) => n.unspecified) ?? 0,
+      score: avg((n) => n.score),
+    };
+    return { day, night };
+  });
 }

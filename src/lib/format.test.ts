@@ -53,6 +53,16 @@ describe("createFormat", () => {
     expect(he.weekdays[0]).toBe("יום ראשון");
   });
 
+  it("labels day, week and month chart rows", () => {
+    expect(en.period("2026-10-25", "day", 30)).toBe("Oct 25");
+    expect(en.period("2026-10-25", "week", 400)).toBe("Oct 25");
+    expect(en.period("2026-10-25", "week", 400, true)).toBe("Week of Oct 25");
+    expect(en.period("2026-10-01", "month", 1000)).toBe("Oct 2026");
+    expect(en.period("2026-10-01", "month", 1000, true)).toBe("October 2026");
+    expect(he.period("2026-10-25", "week", 400, true)).toContain("השבוע של");
+    expect(en.dateWithYear("2026-06-27")).toBe("Jun 27, 2026");
+  });
+
   it("formats sizes and counts", () => {
     expect(en.bytes(500)).toBe("1 KB");
     expect(en.bytes(5 * 1024 ** 2)).toBe("5 MB");

@@ -18,7 +18,8 @@ import { prisma } from "@/lib/prisma";
 
 const WATCH = "EZ Health Demo Watch";
 const PHONE = "EZ Health Demo iPhone";
-const DAYS = 120;
+// DEMO_DAYS makes a longer history (e.g. to try the All time range); the default matches the live demo.
+const DAYS = Number(process.env.DEMO_DAYS) || 120;
 const TZ_MIN = 120; // +02:00
 
 

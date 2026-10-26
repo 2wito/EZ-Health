@@ -10,7 +10,7 @@ import { DatabaseError } from "@/components/ui/database-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { RangePicker } from "@/components/ui/range-picker";
 import { TrendTile } from "@/components/ui/trend-tile";
-import { parseRange, RANGES } from "@/lib/analytics/range";
+import { parseRange, RANGE_DAYS } from "@/lib/analytics/range";
 import { getI18n } from "@/lib/i18n/server";
 import { getSleepData, type SleepData } from "@/lib/queries/sleep";
 
@@ -49,7 +49,11 @@ export default async function SleepPage({ searchParams }: { searchParams: Promis
   const data = result.data;
   return (
     <>
-      <PageHeader title={title} subtitle={t.common.dateRange(f.chartDay(data.start, 30), f.chartDay(data.end, 30))} />
+      <PageHeader title={title} subtitle={
+          data.range === "all"
+            ? t.common.dateRange(f.dateWithYear(data.start), f.dateWithYear(data.end))
+            : t.common.dateRange(f.chartDay(data.start, 30), f.chartDay(data.end, 30))
+        } />
       <div className="mb-6">
         <RangePicker value={range} basePath="/sleep" />
       </div>
@@ -61,7 +65,12 @@ export default async function SleepPage({ searchParams }: { searchParams: Promis
 async function SleepContent({ data }: { data: SleepData }) {
   const { t, f } = await getI18n();
   const { trends, nights, calendar, lastNight, averages } = data;
-  const period = t.common.rangeDays(RANGES[data.range]);
+  const period = data.range === "all" ? t.common.rangeAll : t.common.rangeDays(RANGE_DAYS[data.range]);
+  const halves = data.comparison === "halves";
+  const g = data.granularity;
+  const note = g === "day" ? "" : ` ${t.common.bucketNote[g]}`;
+  // Table rows: nights, or week/month averages for long windows (newest first).
+  const tableNights = (g === "day" ? nights : calendar.flatMap((c) => (c.night ? [c.night] : []))).toReversed();
   const spark = (pick: (n: NonNullable<(typeof calendar)[number]["night"]>) => number | null) =>
     calendar.map((c) => (c.night ? pick(c.night) : null));
   const minutes = (abs: number) => f.duration(abs / 60);
@@ -75,16 +84,16 @@ async function SleepContent({ data }: { data: SleepData }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <TrendTile label={t.sleep.score} icon={Sparkles} tint="sleep" unit="" trend={trends.score} spark={spark((n) => n.score)} periodLabel={period}
+        <TrendTile label={t.sleep.score} icon={Sparkles} tint="sleep" unit="" trend={trends.score} spark={spark((n) => n.score)} periodLabel={period} halves={halves}
           format={(v) => [v.toFixed(0), t.units.of100]} formatDelta={points} />
-        <TrendTile label={t.sleep.timeAsleep} icon={BedDouble} tint="sleep" unit="" trend={trends.duration} spark={spark((n) => n.total)} periodLabel={period}
+        <TrendTile label={t.sleep.timeAsleep} icon={BedDouble} tint="sleep" unit="" trend={trends.duration} spark={spark((n) => n.total)} periodLabel={period} halves={halves}
           format={(v) => [f.compactDuration(v), ""]}
           formatDelta={(abs) => f.duration(abs)} />
-        <TrendTile label={t.sleep.bedtime} icon={Moon} tint="sleep" unit="" trend={trends.bed} spark={spark((n) => n.bed)} periodLabel={period}
+        <TrendTile label={t.sleep.bedtime} icon={Moon} tint="sleep" unit="" trend={trends.bed} spark={spark((n) => n.bed)} periodLabel={period} halves={halves}
           format={f.clockParts} formatDelta={minutes} directionLabels={shift} />
-        <TrendTile label={t.sleep.wakeTime} icon={AlarmClock} tint="sleep" unit="" trend={trends.wake} spark={spark((n) => n.wake)} periodLabel={period}
+        <TrendTile label={t.sleep.wakeTime} icon={AlarmClock} tint="sleep" unit="" trend={trends.wake} spark={spark((n) => n.wake)} periodLabel={period} halves={halves}
           format={f.clockParts} formatDelta={minutes} directionLabels={shift} />
-        <TrendTile label={t.sleep.consistency} icon={CalendarCheck} tint="sleep" unit="" trend={trends.consistency} spark={[]} periodLabel={period}
+        <TrendTile label={t.sleep.consistency} icon={CalendarCheck} tint="sleep" unit="" trend={trends.consistency} spark={[]} periodLabel={period} halves={halves}
           summary={t.trend.score} format={(v) => [v.toFixed(0), t.units.of100]} formatDelta={points} />
       </div>
 
@@ -119,32 +128,32 @@ async function SleepContent({ data }: { data: SleepData }) {
         <ChartCard
           title={t.sleep.scheduleTitle}
           description={
-            trends.bed.current !== null && trends.wake.current !== null
+            (trends.bed.current !== null && trends.wake.current !== null
               ? t.sleep.scheduleDesc(f.clockLabel(trends.bed.current), f.clockLabel(trends.wake.current))
-              : t.sleep.scheduleDescEmpty
+              : t.sleep.scheduleDescEmpty) + note
           }
           table={{
             columns: [t.common.night, t.sleep.asleepCol, t.sleep.wokeCol, t.common.duration],
-            rows: [...nights].reverse().map((n) => [
-              f.chartDay(n.day, 0, true),
+            rows: tableNights.map((n) => [
+              f.period(n.day, g, 0, true),
               n.bed === null ? null : f.clockLabel(n.bed),
               n.wake === null ? null : f.clockLabel(n.wake),
               f.duration(n.total),
             ]),
           }}
         >
-          <ScheduleChart calendar={calendar} avgBed={trends.bed.current} avgWake={trends.wake.current} />
+          <ScheduleChart calendar={calendar} avgBed={trends.bed.current} avgWake={trends.wake.current} granularity={g} />
         </ChartCard>
       </div>
 
       <ChartCard
         title={t.sleep.stagesTitle}
-        description={t.sleep.stagesDesc}
+        description={t.sleep.stagesDesc + note}
         legend={STAGES.map((s) => ({ label: t.stages[s.key], color: s.color, kind: "square" as const }))}
         table={{
           columns: [t.common.night, t.stages.deep, t.stages.core, t.stages.rem, t.stages.awake, t.stages.unspecified],
-          rows: [...nights].reverse().map((n) => [
-            f.chartDay(n.day, 0, true),
+          rows: tableNights.map((n) => [
+            f.period(n.day, g, 0, true),
             f.duration(n.deep),
             f.duration(n.core),
             f.duration(n.rem),
@@ -153,7 +162,7 @@ async function SleepContent({ data }: { data: SleepData }) {
           ]),
         }}
       >
-        <StagesChart calendar={calendar} />
+        <StagesChart calendar={calendar} granularity={g} />
         {averages && (
           <div className="border-t border-border pt-4">
             <p className="mb-3 text-[15px] font-semibold">{t.sleep.averageNight(f.duration(averages.total))}</p>
@@ -163,7 +172,7 @@ async function SleepContent({ data }: { data: SleepData }) {
       </ChartCard>
 
       <p className="mt-3 max-w-3xl text-[13px] leading-[18px] text-muted-foreground">
-        {t.sleep.footnote} {t.common.notMedical}
+        {t.sleep.footnote} {halves && `${t.common.halvesNote} `}{t.common.notMedical}
       </p>
     </div>
   );

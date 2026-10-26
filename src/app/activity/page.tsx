@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { RangePicker } from "@/components/ui/range-picker";
 import { TrendTile } from "@/components/ui/trend-tile";
 import { paceLabel } from "@/lib/analytics/activity";
-import { parseRange, RANGES } from "@/lib/analytics/range";
+import { parseRange, RANGE_DAYS } from "@/lib/analytics/range";
 import { getI18n } from "@/lib/i18n/server";
 import { getActivityData, type ActivityData } from "@/lib/queries/activity";
 
@@ -50,7 +50,11 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
   const data = result.data;
   return (
     <>
-      <PageHeader title={title} subtitle={t.common.dateRange(f.chartDay(data.start, 30), f.chartDay(data.end, 30))} />
+      <PageHeader title={title} subtitle={
+          data.range === "all"
+            ? t.common.dateRange(f.dateWithYear(data.start), f.dateWithYear(data.end))
+            : t.common.dateRange(f.chartDay(data.start, 30), f.chartDay(data.end, 30))
+        } />
       <div className="mb-6">
         <RangePicker value={range} basePath="/activity" />
       </div>
@@ -62,7 +66,8 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
 async function ActivityContent({ data }: { data: ActivityData }) {
   const { t, f } = await getI18n();
   const { trends, heatmap, byWeekday, workouts, evaluation } = data;
-  const period = t.common.rangeDays(RANGES[data.range]);
+  const period = data.range === "all" ? t.common.rangeAll : t.common.rangeDays(RANGE_DAYS[data.range]);
+  const halves = data.comparison === "halves";
   const u = t.units;
   const hm = (minutes: number) => f.compactDuration(minutes / 60);
 
@@ -81,16 +86,16 @@ async function ActivityContent({ data }: { data: ActivityData }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <TrendTile label={t.activity.workouts} icon={Dumbbell} tint="workout" unit="" trend={trends.count} spark={[]} periodLabel={period}
+        <TrendTile label={t.activity.workouts} icon={Dumbbell} tint="workout" unit="" trend={trends.count} spark={[]} periodLabel={period} halves={halves}
           summary={t.trend.total} format={(v) => [v.toFixed(0), t.activity.workoutUnit(v)]} formatDelta={(abs) => `${abs.toFixed(0)}`}
           directionLabels={{ up: t.activity.more, down: t.activity.fewer }} />
-        <TrendTile label={t.activity.trainingTime} icon={Timer} tint="workout" unit="" trend={trends.minutes} spark={[]} periodLabel={period}
+        <TrendTile label={t.activity.trainingTime} icon={Timer} tint="workout" unit="" trend={trends.minutes} spark={[]} periodLabel={period} halves={halves}
           summary={t.trend.total} format={(v) => (v >= 60 ? [hm(v), ""] : [v.toFixed(0), u.min])}
           formatDelta={(abs) => (abs >= 60 ? hm(abs) : `${Math.round(abs)} ${u.min}`)}
           directionLabels={{ up: t.activity.more, down: t.activity.less }} />
-        <TrendTile label={t.activity.activeEnergy} icon={Flame} tint="activity" unit={u.kcal} trend={trends.energy} spark={[]} periodLabel={period}
+        <TrendTile label={t.activity.activeEnergy} icon={Flame} tint="activity" unit={u.kcal} trend={trends.energy} spark={[]} periodLabel={period} halves={halves}
           summary={t.trend.dailyAverage} />
-        <TrendTile label={t.activity.pace} icon={Clock} tint="workout" unit="" trend={trends.pace} spark={[]} periodLabel={period}
+        <TrendTile label={t.activity.pace} icon={Clock} tint="workout" unit="" trend={trends.pace} spark={[]} periodLabel={period} halves={halves}
           format={(v) => [paceLabel(60 / v) ?? "—", u.perKm]} formatDelta={(abs) => `${Math.round(abs * 60)} ${u.sPerKm}`}
           directionLabels={{ up: t.activity.slower, down: t.activity.faster }} />
       </div>

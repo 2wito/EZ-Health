@@ -1,6 +1,7 @@
 "use client";
 
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { Granularity } from "@/lib/analytics/range";
 import { useI18n } from "@/lib/i18n/client";
 import { TooltipBox, TooltipRow } from "./tooltip";
 
@@ -45,13 +46,16 @@ export function TimeSeriesChart({
   unit,
   days,
   height = 240,
+  granularity = "day",
 }: {
   data: Row[];
   series: Series[];
   unit: string;
-  /** Window length, to pick a sensible x-axis label format. */
+  /** Number of rows, to pick a sensible x-axis label format. */
   days: number;
   height?: number;
+  /** Rows are days, or week/month averages. */
+  granularity?: Granularity;
 }) {
   const { f } = useI18n();
   const values = data.flatMap((row) => series.map((s) => row[s.key])).filter((v): v is number => typeof v === "number");
@@ -65,7 +69,7 @@ export function TimeSeriesChart({
           <CartesianGrid vertical={false} stroke="var(--border)" />
           <XAxis
             dataKey="day"
-            tickFormatter={(d: string) => f.chartDay(d, days)}
+            tickFormatter={(d: string) => f.period(d, granularity, days)}
             tick={AXIS_TICK}
             axisLine={false}
             tickLine={false}
@@ -87,7 +91,7 @@ export function TimeSeriesChart({
             isAnimationActive={false}
             content={({ active, label, payload }) =>
               active && payload?.length ? (
-                <ChartTooltip day={String(label)} unit={unit} series={series} row={payload[0].payload as Row} />
+                <ChartTooltip day={String(label)} unit={unit} series={series} row={payload[0].payload as Row} granularity={granularity} />
               ) : null
             }
           />
@@ -141,10 +145,22 @@ export function TimeSeriesChart({
 }
 
 /** One readout for every series at the hovered day: value first, series name second. */
-function ChartTooltip({ day, unit, series, row }: { day: string; unit: string; series: Series[]; row: Row }) {
+function ChartTooltip({
+  day,
+  unit,
+  series,
+  row,
+  granularity,
+}: {
+  day: string;
+  unit: string;
+  series: Series[];
+  row: Row;
+  granularity: Granularity;
+}) {
   const { f } = useI18n();
   return (
-    <TooltipBox title={f.chartDay(day, 0, true)}>
+    <TooltipBox title={f.period(day, granularity, 0, true)}>
       {series.map((s) => {
         const v = row[s.key];
         return (

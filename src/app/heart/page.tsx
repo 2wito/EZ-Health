@@ -8,8 +8,10 @@ import { DatabaseError } from "@/components/ui/database-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { RangePicker } from "@/components/ui/range-picker";
 import { TrendTile } from "@/components/ui/trend-tile";
-import { parseRange, RANGES } from "@/lib/analytics/range";
+import { parseRange, RANGE_DAYS } from "@/lib/analytics/range";
 import { getI18n } from "@/lib/i18n/server";
+import type { Format } from "@/lib/format";
+import type { Messages } from "@/lib/i18n/messages";
 import { getHeartData, type HeartData } from "@/lib/queries/heart";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -49,7 +51,7 @@ export default async function HeartPage({ searchParams }: { searchParams: Promis
   const data = result.data;
   return (
     <>
-      <PageHeader title={title} subtitle={t.common.dateRange(f.chartDay(data.start, 30), f.chartDay(data.end, 30))} />
+      <PageHeader title={title} subtitle={span(data, f, t)} />
       <div className="mb-6">
         <RangePicker value={range} basePath="/heart" />
       </div>
@@ -61,7 +63,10 @@ export default async function HeartPage({ searchParams }: { searchParams: Promis
 async function HeartContent({ data }: { data: HeartData }) {
   const { t, f } = await getI18n();
   const { days, trends } = data;
-  const period = t.common.rangeDays(RANGES[data.range]);
+  const period = data.range === "all" ? t.common.rangeAll : t.common.rangeDays(RANGE_DAYS[data.range]);
+  const halves = data.comparison === "halves";
+  const g = data.granularity;
+  const note = g === "day" ? "" : ` ${t.common.bucketNote[g]}`;
   const has = (key: "resting" | "workout" | "hrv" | "breathing") => days.some((d) => d[key] !== null);
   const u = t.units;
 
@@ -73,26 +78,26 @@ async function HeartContent({ data }: { data: HeartData }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <TrendTile label={t.heart.restingHr} icon={Heart} tint="heart" unit={u.bpm} trend={trends.resting} spark={days.map((d) => d.resting)} periodLabel={period} />
-        <TrendTile label={t.heart.workoutHr} icon={Dumbbell} tint="primary" unit={u.bpm} trend={trends.workout} spark={days.map((d) => d.workout)} sparkStyle="dots" periodLabel={period} />
-        <TrendTile label={t.heart.hrv} icon={Activity} tint="heart" unit={u.ms} trend={trends.hrv} spark={days.map((d) => d.hrv)} periodLabel={period} />
-        <TrendTile label={t.heart.respiratory} icon={Wind} tint="breathing" unit={u.brMin} digits={1} trend={trends.breathing} spark={days.map((d) => d.breathing)} periodLabel={period} />
+        <TrendTile label={t.heart.restingHr} icon={Heart} tint="heart" unit={u.bpm} trend={trends.resting} spark={days.map((d) => d.resting)} periodLabel={period} halves={halves} />
+        <TrendTile label={t.heart.workoutHr} icon={Dumbbell} tint="primary" unit={u.bpm} trend={trends.workout} spark={days.map((d) => d.workout)} sparkStyle="dots" periodLabel={period} halves={halves} />
+        <TrendTile label={t.heart.hrv} icon={Activity} tint="heart" unit={u.ms} trend={trends.hrv} spark={days.map((d) => d.hrv)} periodLabel={period} halves={halves} />
+        <TrendTile label={t.heart.respiratory} icon={Wind} tint="breathing" unit={u.brMin} digits={1} trend={trends.breathing} spark={days.map((d) => d.breathing)} periodLabel={period} halves={halves} />
       </div>
 
       <ChartCard
         title={t.heart.compareTitle}
-        description={t.heart.compareDesc}
+        description={t.heart.compareDesc + note}
         legend={[
           { label: t.heart.resting, color: COLORS.resting, kind: "line" },
           { label: t.heart.workouts, color: COLORS.workout, kind: "dot" },
         ]}
         table={{
           columns: [t.common.date, t.heart.restingCol, t.heart.workoutCol],
-          rows: dailyTableRows(days, [(d) => round(d.resting), (d) => round(d.workout)], f),
+          rows: dailyTableRows(days, [(d) => round(d.resting), (d) => round(d.workout)], f, g),
         }}
       >
         {has("resting") || has("workout") ? (
-          <TimeSeriesChart data={days} series={comparison} unit={u.bpm} days={days.length} height={260} />
+          <TimeSeriesChart data={days} series={comparison} unit={u.bpm} days={days.length} granularity={g} height={260} />
         ) : (
           <NoReadings text={t.heart.noReadings.heart} />
         )}
@@ -101,15 +106,15 @@ async function HeartContent({ data }: { data: HeartData }) {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <ChartCard
           title={t.heart.hrvTitle}
-          description={t.heart.hrvDesc}
-          table={{ columns: [t.common.date, t.heart.hrvCol], rows: dailyTableRows(days, [(d) => round(d.hrv)], f) }}
+          description={t.heart.hrvDesc + note}
+          table={{ columns: [t.common.date, t.heart.hrvCol], rows: dailyTableRows(days, [(d) => round(d.hrv)], f, g) }}
         >
           {has("hrv") ? (
             <TimeSeriesChart
               data={days}
               series={[{ key: "hrv", label: t.heart.hrv, color: COLORS.hrv, kind: "area" }]}
               unit={u.ms}
-              days={days.length}
+              days={days.length} granularity={g}
               height={200}
             />
           ) : (
@@ -119,15 +124,15 @@ async function HeartContent({ data }: { data: HeartData }) {
 
         <ChartCard
           title={t.heart.respTitle}
-          description={t.heart.respDesc}
-          table={{ columns: [t.common.date, t.heart.respCol], rows: dailyTableRows(days, [(d) => round(d.breathing, 1)], f) }}
+          description={t.heart.respDesc + note}
+          table={{ columns: [t.common.date, t.heart.respCol], rows: dailyTableRows(days, [(d) => round(d.breathing, 1)], f, g) }}
         >
           {has("breathing") ? (
             <TimeSeriesChart
               data={days}
               series={[{ key: "breathing", label: t.heart.respSeries, color: COLORS.breathing, kind: "area", digits: 1 }]}
               unit={u.brMin}
-              days={days.length}
+              days={days.length} granularity={g}
               height={200}
             />
           ) : (
@@ -137,7 +142,7 @@ async function HeartContent({ data }: { data: HeartData }) {
       </div>
 
       <p className="mt-3 max-w-3xl text-[13px] leading-[18px] text-muted-foreground">
-        {t.heart.footnote} {t.common.notMedical}
+        {t.heart.footnote} {halves && `${t.common.halvesNote} `}{t.common.notMedical}
       </p>
     </div>
   );
@@ -148,3 +153,10 @@ function NoReadings({ text }: { text: string }) {
 }
 
 const round = (v: number | null, digits = 0) => (v === null ? null : Number(v.toFixed(digits)));
+
+/** "Sep 26 to Oct 25", with years when the window is all time. */
+function span(data: HeartData, f: Format, t: Messages) {
+  return data.range === "all"
+    ? t.common.dateRange(f.dateWithYear(data.start), f.dateWithYear(data.end))
+    : t.common.dateRange(f.chartDay(data.start, 30), f.chartDay(data.end, 30));
+}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { Granularity } from "@/lib/analytics/range";
 import { useI18n } from "@/lib/i18n/client";
 import type { SleepNight, StageSegment } from "@/lib/queries/sleep";
 import { STAGES, UNSPECIFIED } from "./stages";
@@ -123,11 +124,13 @@ export function ScheduleChart({
   avgBed,
   avgWake,
   height = 260,
+  granularity = "day",
 }: {
   calendar: CalendarRow[];
   avgBed: number | null;
   avgWake: number | null;
   height?: number;
+  granularity?: Granularity;
 }) {
   const { t, f } = useI18n();
   const data = calendar.map(({ day, night }) => ({
@@ -149,7 +152,7 @@ export function ScheduleChart({
           <CartesianGrid vertical={false} stroke="var(--border)" />
           <XAxis
             dataKey="day"
-            tickFormatter={(d: string) => f.chartDay(d, calendar.length)}
+            tickFormatter={(d: string) => f.period(d, granularity, calendar.length)}
             tick={AXIS_TICK}
             axisLine={false}
             tickLine={false}
@@ -174,7 +177,7 @@ export function ScheduleChart({
               const row = payload?.[0]?.payload as (typeof data)[number] | undefined;
               if (!active || !row?.night || !row.range) return null;
               return (
-                <TooltipBox title={f.chartDay(row.day, 0, true)}>
+                <TooltipBox title={f.period(row.day, granularity, 0, true)}>
                   <TooltipRow color="var(--sleep)" mark="square" value={t.sleep.span(f.clockLabel(row.range[0]), f.clockLabel(row.range[1]))} label="" />
                   <p className="mt-0.5 text-muted-foreground">{t.sleep.asleep(f.duration(row.night.total))}</p>
                 </TooltipBox>
@@ -194,7 +197,15 @@ export function ScheduleChart({
 // ─── Nightly stages (stacked) ────────────────────────────────────────────────
 
 /** Hours in each stage per night. 2px surface-colored strokes separate the segments. */
-export function StagesChart({ calendar, height = 240 }: { calendar: CalendarRow[]; height?: number }) {
+export function StagesChart({
+  calendar,
+  height = 240,
+  granularity = "day",
+}: {
+  calendar: CalendarRow[];
+  height?: number;
+  granularity?: Granularity;
+}) {
   const showUnspecified = calendar.some((c) => (c.night?.unspecified ?? 0) > 0);
   // Bottom-up stacking: deepest stage on the baseline.
   const series = [...(showUnspecified ? [UNSPECIFIED] : []), ...[...STAGES].reverse()];
@@ -218,7 +229,7 @@ export function StagesChart({ calendar, height = 240 }: { calendar: CalendarRow[
           <CartesianGrid vertical={false} stroke="var(--border)" />
           <XAxis
             dataKey="day"
-            tickFormatter={(d: string) => f.chartDay(d, calendar.length)}
+            tickFormatter={(d: string) => f.period(d, granularity, calendar.length)}
             tick={AXIS_TICK}
             axisLine={false}
             tickLine={false}
@@ -243,7 +254,7 @@ export function StagesChart({ calendar, height = 240 }: { calendar: CalendarRow[
               if (!active || !row?.night) return null;
               const n = row.night;
               return (
-                <TooltipBox title={f.chartDay(row.day, 0, true)}>
+                <TooltipBox title={f.period(row.day, granularity, 0, true)}>
                   {[...STAGES, ...(showUnspecified ? [UNSPECIFIED] : [])].map((s) => (
                     <TooltipRow key={s.key} color={s.color} mark="square" value={f.duration(n[s.key])} label={t.stages[s.key]} />
                   ))}

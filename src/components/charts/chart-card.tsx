@@ -1,4 +1,5 @@
 import { Card, type Tint } from "@/components/ui/card";
+import type { Granularity } from "@/lib/analytics/range";
 import type { Format } from "@/lib/format";
 import { getI18n } from "@/lib/i18n/server";
 
@@ -92,14 +93,15 @@ export async function ChartCard({
   );
 }
 
-/** Table rows from daily data: newest first, only days that have a value. */
+/** Table rows from day (or week/month) data: newest first, only rows that have a value. */
 export function dailyTableRows<T extends { day: string }>(
   days: T[],
   cells: ((d: T) => number | string | null)[],
   f: Format,
+  granularity: Granularity = "day",
 ): (string | number | null)[][] {
   return days
     .filter((d) => cells.some((c) => c(d) !== null))
     .reverse()
-    .map((d) => [f.chartDay(d.day, 0, true), ...cells.map((c) => c(d))]);
+    .map((d) => [f.period(d.day, granularity, 0, true), ...cells.map((c) => c(d))]);
 }

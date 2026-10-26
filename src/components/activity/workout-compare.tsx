@@ -154,10 +154,11 @@ export function WorkoutCompare({ workouts }: { workouts: WorkoutRow[] }) {
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-border">
+      {/* Long histories hold hundreds of workouts: scroll inside the card, header pinned. */}
+      <div className="max-h-[28rem] overflow-auto rounded-xl border border-border">
         <table className="w-full min-w-[560px] text-start text-[13px] tabular-nums">
           <caption className="sr-only">{t.compare.caption(typeName(type))}</caption>
-          <thead className="bg-card-elevated text-muted-foreground">
+          <thead className="sticky top-0 z-10 bg-card-elevated text-muted-foreground">
             <tr>
               <th scope="col" className="w-10 px-3 py-2 font-medium">
                 <span className="sr-only">{t.compare.compare}</span>

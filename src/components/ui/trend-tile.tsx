@@ -19,6 +19,7 @@ export async function TrendTile({
   sparkStyle = "line",
   digits = 0,
   periodLabel,
+  halves = false,
   format,
   formatDelta,
   directionLabels,
@@ -36,6 +37,8 @@ export async function TrendTile({
   digits?: number;
   /** e.g. "30 days" */
   periodLabel: string;
+  /** All time: compare the second half of the window with the first, not with the period before. */
+  halves?: boolean;
   /** Custom value display, e.g. a clock time → ["11:42", "PM"]. */
   format?: (v: number) => [value: string, unit: string];
   /** Custom change display, e.g. minutes → "18 min". Receives the absolute delta. */
@@ -71,6 +74,7 @@ export async function TrendTile({
               t,
               trend,
               periodLabel,
+              halves,
               summary ?? t.trend.average,
               formatDelta ?? ((abs) => `${abs.toFixed(Math.max(digits, abs < 1 ? 1 : 0))} ${unit}`),
               directionLabels,
@@ -88,14 +92,17 @@ function describeChange(
   t: Messages,
   trend: Trend,
   periodLabel: string,
+  halves: boolean,
   summary: string,
   formatDelta: (abs: number) => string,
   labels = { up: t.trend.higher, down: t.trend.lower },
 ) {
-  const lead = t.trend.lead(summary, periodLabel);
+  const lead = halves ? t.trend.leadAll(summary) : t.trend.lead(summary, periodLabel);
   if (trend.delta === null || trend.direction === null) return t.trend.noCompare(lead);
-  if (trend.direction === "flat") return t.trend.flat(lead, periodLabel);
-  return t.trend.moved(lead, formatDelta(Math.abs(trend.delta)), trend.direction === "up" ? labels.up : labels.down, periodLabel);
+  if (trend.direction === "flat") return halves ? t.trend.flatHalves(lead) : t.trend.flat(lead, periodLabel);
+  const delta = formatDelta(Math.abs(trend.delta));
+  const word = trend.direction === "up" ? labels.up : labels.down;
+  return halves ? t.trend.movedHalves(lead, delta, word) : t.trend.moved(lead, delta, word, periodLabel);
 }
 
 const TONES = { improving: "var(--good)", declining: "var(--warning)", stable: "var(--gray)" } as const;

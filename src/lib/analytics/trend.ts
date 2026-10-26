@@ -44,3 +44,30 @@ export function computeTrend(current: number[], previous: number[], opts: TrendO
   const improved = (better === "lower") === (direction === "down");
   return { ...base, delta, verdict: improved ? "improving" : "declining", direction };
 }
+
+/**
+ * Trend for a dashboard window. The headline (`current`) is the mean over
+ * everything shown; the change compares the window's recent span with its
+ * previous one (the period before, or for all time, the first half).
+ */
+export function windowTrend(shown: number[], recent: number[], previous: number[], opts: TrendOptions): Trend {
+  return { ...computeTrend(recent, previous, opts), current: mean(shown) };
+}
+
+/** Splits day-keyed values into what a window shows, its recent span and the span it's compared with. */
+export function splitByWindow(
+  points: Iterable<readonly [day: string, value: number]>,
+  w: { start: Date; end: Date; recentStart: Date; recentEnd: Date; prevStart: Date; prevEnd: Date },
+) {
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const [s, e, rs, re, ps, pe] = [w.start, w.end, w.recentStart, w.recentEnd, w.prevStart, w.prevEnd].map(iso);
+  const shown: number[] = [];
+  const recent: number[] = [];
+  const previous: number[] = [];
+  for (const [day, v] of points) {
+    if (day >= s && day <= e) shown.push(v);
+    if (day >= rs && day <= re) recent.push(v);
+    if (day >= ps && day <= pe) previous.push(v);
+  }
+  return [shown, recent, previous] as const;
+}
