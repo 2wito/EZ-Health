@@ -41,6 +41,7 @@ describe("translations", () => {
   it("fills in values in Hebrew templates", () => {
     expect(he.trend.moved("ממוצע", "3 פעימות/דק׳", "גבוה", "30 ימים")).toBe("ממוצע, גבוה ב־3 פעימות/דק׳ לעומת התקופה הקודמת.");
     expect(he.activity.peakTimeValue("יום שני", "18:00")).toBe("ימי שני, 18:00");
-    expect(he.readiness.notes.hrv(12, true)).toContain("נמוך ב־12%");
+    expect(he.readiness.detail.hrv(51, 47, 8)).toContain("⁦+8%⁩");
+    expect(he.readiness.detail.rhr(57, 55, 2)).toContain("⁦+2⁩");
   });
 });

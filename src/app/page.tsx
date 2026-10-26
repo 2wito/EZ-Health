@@ -1,12 +1,14 @@
-import { Activity, BedDouble, Dumbbell, Flame, Heart, MoonStar, Sparkles, Wind } from "lucide-react";
+import { Activity, BedDouble, Dumbbell, Flame, Heart, MoonStar, Wind } from "lucide-react";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { PageHeader } from "@/components/shell/page-header";
 import { TodayLabel } from "@/components/shell/today-label";
+import { ReadinessCard } from "@/components/readiness/readiness-card";
 import { ConnectCard } from "@/components/summary/connect-card";
 import { SectionTitle } from "@/components/ui/card";
 import { DatabaseError } from "@/components/ui/database-error";
 import { MetricTile } from "@/components/ui/metric-tile";
+import { isoDay } from "@/lib/analytics/range";
 import { sleepScore } from "@/lib/analytics/sleep";
 import { getI18n } from "@/lib/i18n/server";
 import { getSummary, type Summary } from "@/lib/queries/summary";
@@ -46,17 +48,19 @@ async function SummaryContent({ data }: { data: Summary }) {
         </div>
       )}
 
+      {!data.isEmpty && (
+        <div className="mb-8">
+          <ReadinessCard
+            readiness={readiness}
+            day={readinessDay ? isoDay(readinessDay) : null}
+            sleepScore={score}
+            coachHref="/coach"
+          />
+        </div>
+      )}
+
       <SectionTitle>{t.summary.latest}</SectionTitle>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          label={t.summary.readiness}
-          icon={Sparkles}
-          tint="coach"
-          href="/coach"
-          measure={readiness ? [[String(readiness.score), t.units.of100]] : null}
-          caption={readiness && readinessDay ? f.day(readinessDay, restingHr?.tzOffsetMin ?? 0) : undefined}
-          detail={readiness ? t.readiness.levels[readiness.level] : undefined}
-        />
         <MetricTile
           label={t.summary.sleepScore}
           icon={MoonStar}

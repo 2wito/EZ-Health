@@ -3,7 +3,10 @@ import type { Messages } from "./en";
 // Hebrew UI copy. Instructions use the plural imperative (בחרו, לחצו), the
 // usual gender-neutral form in Hebrew interfaces.
 
-const plural = (weekday: string) => weekday.replace(/^יום /, "ימי ");
+/** Isolates a left-to-right run (e.g. "+8%") so the sign stays in front inside Hebrew text. */
+const ltr = (s: string) => `⁦${s}⁩`;
+
+const plural =(weekday: string) => weekday.replace(/^יום /, "ימי ");
 
 export const he: Messages = {
   meta: {
@@ -110,6 +113,7 @@ export const he: Messages = {
     activeEnergy: "אנרגיה פעילה",
     workout: "אימון",
     asleep: (duration: string) => `${duration} שינה`,
+    askCoach: "לתכנן את היום עם המאמן",
   },
 
   connect: {
@@ -328,13 +332,15 @@ export const he: Messages = {
   readiness: {
     title: "מוכנות",
     needs: "נדרשים לפחות שניים מתוך HRV, דופק במנוחה ושינה בלילה האחרון, וגם כמה שבועות של היסטוריה כבסיס להשוואה.",
-    aria: (score: number) => `מוכנות ${score} מתוך 100`,
+    meter: (score: number, band: string) => `מוכנות ${score} מתוך 100, ${band}`,
+    outOf: "מתוך 100",
+    basedOn: (day: string) => `לפי הנתונים שלכם מ־${day}`,
     levels: { push: "מוכנים למאמץ", normal: "להתאמן כמתוכנן", recover: "עדיפות להתאוששות" },
-    today: "היום",
+    bands: { push: "מוכנות גבוהה", normal: "מוכנות בינונית", recover: "מוכנות נמוכה" },
     plans: {
       push: {
-        title: "יום טוב לאימון קשה",
-        body: "אינטרוולים, ריצת טמפו או הרמת משקלים כבדים. חממו היטב ועצרו אם משהו מרגיש לא בסדר.",
+        title: "יום מצוין לאימון כוח כבד או לריצה ארוכה",
+        body: "אינטרוולים, ריצת טמפו או הרמת משקלים כבדים מתאימים היום. חממו היטב ועצרו אם משהו מרגיש לא בסדר.",
       },
       normal: {
         title: "להתאמן כמתוכנן",
@@ -345,12 +351,21 @@ export const he: Messages = {
         body: "מנוחה, או 20 עד 40 דקות של הליכה, מוביליטי או רכיבה קלה בקצב שמאפשר לדבר.",
       },
     },
-    notes: {
-      hrvNormal: "ה־HRV בטווח הרגיל שלכם",
-      hrv: (pct: number, below: boolean) => `ה־HRV ${below ? "נמוך" : "גבוה"} ב־${pct}% מהממוצע של 30 הימים האחרונים`,
-      rhrNormal: "הדופק במנוחה בערך הבסיס שלכם",
-      rhr: (diff: number, above: boolean) => `הדופק במנוחה ${above ? "גבוה" : "נמוך"} ב־${diff} פעימות לדקה מערך הבסיס`,
-      sleep: (h: number, m: number) => `ישנתם ${h} ש׳ ו־${m} ד׳ בלילה האחרון`,
+    drivers: "מה השפיע על הציון היום",
+    contribution: (points: number, max: number) => `${points} מתוך ${max} נקודות`,
+    driverNames: { hrv: "השתנות דופק (HRV)", rhr: "דופק במנוחה", sleep: "השינה בלילה האחרון" },
+    status: {
+      hrv: { good: "מעל הממוצע", neutral: "בטווח הרגיל", bad: "מתחת לממוצע" },
+      rhr: { good: "מתחת לבסיס", neutral: "בערך הבסיס", bad: "מוגבר" },
+      sleep: { good: "ישנתם מספיק", neutral: "קצת קצר", bad: "לילה קצר" },
+    },
+    detail: {
+      hrv: (latest: number, baseline: number, pct: number) =>
+        `${latest} ms לעומת ממוצע 30 יום של ${baseline} ms (${ltr(`${pct > 0 ? "+" : ""}${pct}%`)})`,
+      rhr: (latest: number, baseline: number, diff: number) =>
+        `${latest} פעימות/דק׳ לעומת בסיס של ${baseline} (${ltr(`${diff > 0 ? "+" : ""}${diff}`)})`,
+      sleep: (duration: string) => `${duration} שינה`,
+      sleepScore: (score: number) => `ציון שינה ${score}`,
     },
   },
 

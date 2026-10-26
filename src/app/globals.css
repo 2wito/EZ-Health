@@ -45,6 +45,12 @@
   --good: #34c759;
   --warning: #ff9500;
 
+  /* Readiness bands: validated together for CVD and 3:1 contrast on the card.
+     Light uses an amber-gold, since iOS yellow is ~1.5:1 on white. */
+  --ready-high: #127a52;
+  --ready-moderate: #bf8a00;
+  --ready-low: #d70015;
+
   /* Sleep stages: one-hue depth ramp (REM light → Deep dark) + a warm Awake.
      Apple's own blue/indigo pair failed CVD + normal-vision separation. */
   --stage-awake: #f07a3a;
@@ -96,6 +102,10 @@
   --good: #30d158;
   --warning: #ff9f0a;
 
+  --ready-high: #2fd08a;
+  --ready-moderate: #ffd60a; /* iOS yellow */
+  --ready-low: #ff453a;
+
   --stage-awake: #ff9a5c;
   --stage-rem: #a9c1ff;
   --stage-core: #5b85f0;
@@ -143,6 +153,9 @@
   --color-workout: var(--workout);
   --color-coach: var(--coach);
   --color-gray: var(--gray);
+  --color-ready-high: var(--ready-high);
+  --color-ready-moderate: var(--ready-moderate);
+  --color-ready-low: var(--ready-low);
   --color-stage-awake: var(--stage-awake);
   --color-stage-rem: var(--stage-rem);
   --color-stage-core: var(--stage-core);
@@ -208,5 +221,12 @@
   }
   to {
     transform: translateX(300%);
+  }
+}
+
+/* Readiness gauge: one sweep in from empty when the card appears. */
+@keyframes gauge-fill {
+  from {
+    stroke-dashoffset: var(--gauge-length);
   }
 }

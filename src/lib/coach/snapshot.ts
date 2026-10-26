@@ -2,7 +2,7 @@ import "server-only";
 import { isRun, paceLabel } from "@/lib/analytics/activity";
 import { addDays, isoDay } from "@/lib/analytics/range";
 import { computeReadiness, type Readiness } from "@/lib/analytics/readiness";
-import { clockLabel, durationLabel, minutesSinceNoon } from "@/lib/analytics/sleep";
+import { clockLabel, durationLabel, minutesSinceNoon, sleepScore } from "@/lib/analytics/sleep";
 import { mean } from "@/lib/analytics/trend";
 import { createFormat } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
@@ -15,6 +15,8 @@ import { getEvaluation, type Evaluation } from "@/lib/queries/evaluation";
 export interface CoachSnapshot {
   asOf: string;
   readiness: Readiness | null;
+  /** Last night's sleep score (shown beside readiness; not part of its formula). */
+  sleepScore: number | null;
   today: {
     hrv: number | null;
     hrvBaseline: number | null;
@@ -46,8 +48,11 @@ export async function getCoachSnapshot(): Promise<CoachSnapshot | null> {
       WHERE type = ANY(ARRAY['RESTING_HEART_RATE', 'HEART_RATE_VARIABILITY']::"MetricType"[])
         AND qty IS NOT NULL AND "localDate" BETWEEN ${isoDay(from)}::date AND ${isoDay(end)}::date
       GROUP BY 1, 2 ORDER BY 2`,
-    prisma.$queryRaw<{ date: Date; tzOffsetMin: number; totalSleep: number; sleepStart: Date | null; sleepEnd: Date | null }[]>`
-      SELECT DISTINCT ON ("date") "date", "tzOffsetMin", "totalSleep", "sleepStart", "sleepEnd" FROM "SleepSession"
+    prisma.$queryRaw<
+      { date: Date; tzOffsetMin: number; totalSleep: number; deepHours: number; remHours: number; awakeHours: number; sleepStart: Date | null; sleepEnd: Date | null }[]
+    >`
+      SELECT DISTINCT ON ("date") "date", "tzOffsetMin", "totalSleep", "deepHours", "remHours", "awakeHours", "sleepStart", "sleepEnd"
+      FROM "SleepSession"
       WHERE "totalSleep" > 0 AND "date" BETWEEN ${isoDay(addDays(end, -6))}::date AND ${isoDay(end)}::date
       ORDER BY "date" DESC, "totalSleep" DESC`,
     prisma.workout.findMany({
@@ -100,6 +105,9 @@ export async function getCoachSnapshot(): Promise<CoachSnapshot | null> {
   return {
     asOf: isoDay(end),
     readiness,
+    sleepScore: lastNight
+      ? sleepScore({ total: lastNight.totalSleep, deep: lastNight.deepHours, rem: lastNight.remHours, awake: lastNight.awakeHours })
+      : null,
     today: {
       hrv: hrv.latest,
       hrvBaseline: hrv.baseline,

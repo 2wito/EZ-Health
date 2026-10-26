@@ -99,6 +99,7 @@ export const en = {
     activeEnergy: "Active Energy",
     workout: "Workout",
     asleep: (duration: string) => `${duration} asleep`,
+    askCoach: "Plan today with the coach",
   },
 
   connect: {
@@ -284,13 +285,15 @@ export const en = {
   readiness: {
     title: "Readiness",
     needs: "Needs at least two of HRV, resting heart rate and last night's sleep, plus a few weeks of history for a baseline.",
-    aria: (score: number) => `Readiness ${score} out of 100`,
+    meter: (score: number, band: string) => `Readiness ${score} out of 100, ${band}`,
+    outOf: "of 100",
+    basedOn: (day: string) => `From your data for ${day}`,
     levels: { push: "Ready to push", normal: "Train as planned", recover: "Prioritize recovery" },
-    today: "Today",
+    bands: { push: "High readiness", normal: "Moderate readiness", recover: "Low readiness" },
     plans: {
       push: {
-        title: "A good day for a hard session",
-        body: "Intervals, a tempo run or heavy lifting. Warm up well and stop if it feels off.",
+        title: "Great day for heavy strength training or a long run",
+        body: "Intervals, a tempo run or heavy lifting all fit. Warm up well and stop if it feels off.",
       },
       normal: {
         title: "Train as planned",
@@ -301,12 +304,21 @@ export const en = {
         body: "Rest, or 20 to 40 minutes of walking, mobility or easy cycling at a pace where you can talk.",
       },
     },
-    notes: {
-      hrvNormal: "HRV is in your normal range",
-      hrv: (pct: number, below: boolean) => `HRV is ${pct}% ${below ? "below" : "above"} your 30-day average`,
-      rhrNormal: "Resting heart rate is at your baseline",
-      rhr: (diff: number, above: boolean) => `Resting heart rate is ${diff} bpm ${above ? "above" : "below"} your baseline`,
-      sleep: (h: number, m: number) => `You slept ${h}h ${m}m last night`,
+    drivers: "What drove today's score",
+    contribution: (points: number, max: number) => `${points} of ${max} points`,
+    driverNames: { hrv: "Heart rate variability", rhr: "Resting heart rate", sleep: "Last night's sleep" },
+    status: {
+      hrv: { good: "Above average", neutral: "Normal range", bad: "Below average" },
+      rhr: { good: "Below baseline", neutral: "At baseline", bad: "Elevated" },
+      sleep: { good: "Well rested", neutral: "A bit short", bad: "Short night" },
+    },
+    detail: {
+      hrv: (latest: number, baseline: number, pct: number) =>
+        `${latest} ms vs ${baseline} ms 30-day average (${pct > 0 ? "+" : ""}${pct}%)`,
+      rhr: (latest: number, baseline: number, diff: number) =>
+        `${latest} bpm vs ${baseline} bpm baseline (${diff > 0 ? "+" : ""}${diff})`,
+      sleep: (duration: string) => `${duration} asleep`,
+      sleepScore: (score: number) => `sleep score ${score}`,
     },
   },
 

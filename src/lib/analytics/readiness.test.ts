@@ -25,6 +25,23 @@ describe("computeReadiness", () => {
     expect(r?.level).toBe("normal");
   });
 
+  it("breaks the score down by signal, in a fixed order, adding up to the score", () => {
+    const r = computeReadiness({ hrv: { latest: 46, baseline: 50 }, rhr: { latest: 56, baseline: 55 }, sleepHours: 6.5 })!;
+    expect(r.drivers.map((d) => d.kind)).toEqual(["hrv", "rhr", "sleep"]);
+    expect(r.drivers.map((d) => d.max)).toEqual([35, 30, 35]);
+    // HRV at 92% of baseline → 19.6 of 35, resting HR +1 → 17.5 of 30, 6.5 h of sleep → 20 of 35.
+    expect(r.drivers.map((d) => d.points)).toEqual([19.6, 17.5, 20]);
+    const total = r.drivers.reduce((a, d) => a + d.points, 0) / r.drivers.reduce((a, d) => a + d.max, 0);
+    expect(Math.round(total * 100)).toBe(r.score);
+    expect(r.drivers[0]).toMatchObject({ kind: "hrv", latest: 46, baseline: 50, pct: -8, tone: "neutral" });
+    expect(r.drivers[1]).toMatchObject({ kind: "rhr", latest: 56, baseline: 55, diff: 1 });
+  });
+
+  it("only lists the signals it had", () => {
+    const r = computeReadiness({ hrv: null, rhr: { latest: 55, baseline: 55 }, sleepHours: 8 })!;
+    expect(r.drivers.map((d) => d.kind)).toEqual(["rhr", "sleep"]);
+  });
+
   it("rounds sleep once, so 7.99 h reads 8h 0m", () => {
     const r = computeReadiness({ hrv: null, rhr: { latest: 55, baseline: 55 }, sleepHours: 7.999 });
     expect(r?.notes.find((n) => n.kind === "sleep")).toMatchObject({ h: 8, m: 0, text: "You slept 8h 0m last night" });

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { connection } from "next/server";
 import { CoachChat } from "@/components/coach/coach-chat";
-import { ReadinessCard } from "@/components/coach/readiness-card";
+import { ReadinessCard } from "@/components/readiness/readiness-card";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card } from "@/components/ui/card";
 import { DatabaseError } from "@/components/ui/database-error";
@@ -56,7 +56,7 @@ export default async function CoachPage() {
       <PageHeader title={title} subtitle={t.coach.basedOn(f.chartDay(snapshot.asOf, 0, true))} />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         <div className="flex flex-col gap-3">
-          <ReadinessCard readiness={snapshot.readiness} />
+          <ReadinessCard readiness={snapshot.readiness} day={snapshot.asOf} sleepScore={snapshot.sleepScore} />
           <Card>
             <h2 className="text-[15px] font-semibold">{t.coach.sees}</h2>
             <ul className="mt-2 space-y-1.5 text-[14px] leading-[20px] text-muted-foreground">

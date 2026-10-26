@@ -15,10 +15,13 @@ export type ReadinessLevel = "push" | "normal" | "recover";
 
 /** A plain-language reason: English `text` for the coach briefing, plus the numbers so the UI can word it in any language. */
 export type ReadinessNote = { text: string; tone: "good" | "neutral" | "bad" } & (
-  | { kind: "hrv"; pct: number }
-  | { kind: "rhr"; diff: number }
+  | { kind: "hrv"; pct: number; latest: number; baseline: number }
+  | { kind: "rhr"; diff: number; latest: number; baseline: number }
   | { kind: "sleep"; h: number; m: number }
 );
+
+/** How one signal contributed: the points it earned out of its maximum. */
+export type ReadinessDriver = ReadinessNote & { points: number; max: number };
 
 export interface Readiness {
   score: number;
@@ -26,6 +29,8 @@ export interface Readiness {
   label: string;
   /** Plain-language reasons, worst first. */
   notes: ReadinessNote[];
+  /** Every signal used, in a fixed order (HRV, resting HR, sleep), with its share of the score. */
+  drivers: ReadinessDriver[];
 }
 
 const lerp = (x: number, x0: number, x1: number, y0: number, y1: number) =>
@@ -44,6 +49,8 @@ export function computeReadiness({ hrv, rhr, sleepHours }: ReadinessInput): Read
       note: {
         kind: "hrv",
         pct,
+        latest: Math.round(hrv.latest),
+        baseline: Math.round(hrv.baseline),
         text: Math.abs(pct) < 5 ? "HRV is in your normal range" : `HRV is ${Math.abs(pct)}% ${pct < 0 ? "below" : "above"} your 30-day average`,
         tone: pct <= -10 ? "bad" : pct >= 5 ? "good" : "neutral",
       },
@@ -58,6 +65,8 @@ export function computeReadiness({ hrv, rhr, sleepHours }: ReadinessInput): Read
       note: {
         kind: "rhr",
         diff,
+        latest: Math.round(rhr.latest),
+        baseline: Math.round(rhr.baseline),
         text: Math.abs(diff) < 2 ? "Resting heart rate is at your baseline" : `Resting heart rate is ${Math.abs(diff)} bpm ${diff > 0 ? "above" : "below"} your baseline`,
         tone: diff >= 3 ? "bad" : diff <= -2 ? "good" : "neutral",
       },
@@ -89,6 +98,7 @@ export function computeReadiness({ hrv, rhr, sleepHours }: ReadinessInput): Read
     score,
     level,
     label: level === "push" ? "Ready to push" : level === "normal" ? "Train as planned" : "Prioritize recovery",
-    notes: parts.sort((a, b) => b.severity - a.severity).map((p) => p.note),
+    drivers: parts.map((p) => ({ ...p.note, points: Math.round(p.points * 10) / 10, max: p.max })),
+    notes: [...parts].sort((a, b) => b.severity - a.severity).map((p) => p.note),
   };
 }
