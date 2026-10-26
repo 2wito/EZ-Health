@@ -5,22 +5,35 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
+import { countSleepNights, toBatches } from "@/lib/apple-health/batches";
 import { isActiveImport, type ImportJobView } from "@/lib/apple-health/job-view";
+import type { WorkerMessage } from "@/lib/apple-health/parse.worker";
+import type { ParseResult } from "@/lib/apple-health/xml-parser";
 import { useI18n } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 type State =
   | { kind: "idle"; error?: string }
-  | { kind: "uploading"; fileName: string; loaded: number; total: number }
+  | { kind: "parsing"; fileName: string; fileBytes: number; phase: "open" | "read"; progress: number | null; recordsRead: number }
+  | { kind: "saving"; fileName: string; fileBytes: number; sent: number; total: number }
   | { kind: "job"; job: ImportJobView };
 
 const POLL_MS = 1000;
 
+/** A failure the person can act on, already worded for them. */
+class ImportFailure extends Error {}
+
+/**
+ * Imports run in the browser: a worker unzips and parses the export, then the
+ * parsed records go up in batches small enough for any host (Vercel caps
+ * request bodies at 4.5 MB). Imports started elsewhere (the CLI) are polled.
+ */
 export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
   const router = useRouter();
   const { t, f } = useI18n();
   const [state, setState] = useState<State>(activeJob ? { kind: "job", job: activeJob } : { kind: "idle" });
-  const xhr = useRef<XMLHttpRequest | null>(null);
+  const worker = useRef<Worker | null>(null);
+  const abort = useRef<AbortController | null>(null);
 
   const fetchJob = useCallback(async (id: string) => {
     const res = await fetch(`/api/upload-xml/${id}`, { cache: "no-store" });
@@ -40,51 +53,166 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
     return () => clearInterval(timer);
   }, [jobId, running, fetchJob, router]);
 
+  // Leaving mid-import would stop it halfway.
+  const busy = state.kind === "parsing" || state.kind === "saving";
+  useEffect(() => {
+    if (!busy) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [busy]);
+
+  useEffect(() => () => worker.current?.terminate(), []);
+
   function upload(file: File) {
     if (!/\.(zip|xml)$/i.test(file.name)) {
       setState({ kind: "idle", error: t.upload.notExport(file.name) });
       return;
     }
+    const base = { fileName: file.name, fileBytes: file.size };
+    setState({ kind: "parsing", ...base, phase: "open", progress: null, recordsRead: 0 });
 
-    // XHR rather than fetch: fetch can't report upload progress.
-    const req = new XMLHttpRequest();
-    xhr.current = req;
-    req.open("POST", "/api/upload-xml");
-    req.setRequestHeader("content-type", "application/octet-stream");
-    req.setRequestHeader("x-file-name", encodeURIComponent(file.name));
-    req.upload.onprogress = (e) =>
-      setState({ kind: "uploading", fileName: file.name, loaded: e.loaded, total: e.total || file.size });
-    req.onload = () => {
-      let body: { jobId?: string; error?: string } = {};
-      try {
-        body = JSON.parse(req.responseText);
-      } catch {}
-      if (req.status === 202 && body.jobId) void fetchJob(body.jobId);
-      else setState({ kind: "idle", error: body.error ?? t.upload.httpFailed(req.status) });
+    worker.current?.terminate();
+    const w = new Worker(new URL("../../lib/apple-health/parse.worker.ts", import.meta.url));
+    worker.current = w;
+    w.onmessage = (e: MessageEvent<WorkerMessage>) => {
+      const m = e.data;
+      if (m.type === "progress") {
+        setState({
+          kind: "parsing",
+          ...base,
+          phase: m.phase,
+          progress: m.bytesTotal ? m.bytesRead / m.bytesTotal : null,
+          recordsRead: m.recordsRead,
+        });
+        return;
+      }
+      w.terminate();
+      worker.current = null;
+      if (m.type === "error") setState({ kind: "idle", error: t.upload.errors[m.code] });
+      else void save(file, m.result, m.bytesTotal);
     };
-    req.onerror = () =>
-      setState({ kind: "idle", error: t.upload.unreachable });
-    req.onabort = () => setState({ kind: "idle" });
-    req.send(file);
-    setState({ kind: "uploading", fileName: file.name, loaded: 0, total: file.size });
+    w.onerror = () => {
+      w.terminate();
+      worker.current = null;
+      setState({ kind: "idle", error: t.upload.errors.generic });
+    };
+    w.postMessage({ file });
   }
+
+  async function save(file: File, result: ParseResult, bytesTotal: number) {
+    const controller = new AbortController();
+    abort.current = controller;
+    const batches = toBatches(result);
+    const base = { fileName: file.name, fileBytes: file.size };
+    setState({ kind: "saving", ...base, sent: 0, total: batches.length });
+
+    const post = async (url: string, body: string): Promise<unknown> => {
+      // One retry: batches are idempotent, and a cold serverless start can fail once.
+      for (let attempt = 0; ; attempt++) {
+        let res: Response;
+        try {
+          res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body, signal: controller.signal });
+        } catch (err) {
+          if (controller.signal.aborted) throw err;
+          if (attempt < 1) continue;
+          throw new ImportFailure(t.upload.unreachable);
+        }
+        if (res.ok) return res.json();
+        if (res.status >= 500 && attempt < 1) continue;
+        throw new ImportFailure(t.upload.httpFailed(res.status));
+      }
+    };
+
+    let id: string | null = null;
+    try {
+      const started = (await post(
+        "/api/import",
+        JSON.stringify({
+          fileName: file.name,
+          fileBytes: file.size,
+          bytesTotal,
+          recordsRead: result.recordsRead,
+          recordsSkipped: result.recordsSkipped,
+          parseWarnings: result.warnings,
+          dataFrom: result.dataFrom,
+          dataTo: result.dataTo,
+        }),
+      )) as { jobId: string };
+      id = started.jobId;
+
+      for (let i = 0; i < batches.length; i++) {
+        await post(`/api/import/${id}/batch`, batches[i]);
+        setState({ kind: "saving", ...base, sent: i + 1, total: batches.length });
+      }
+
+      const job = (await post(
+        `/api/import/${id}/finish`,
+        JSON.stringify({
+          status: "DONE",
+          sleepNights: countSleepNights(result.sleepStages),
+          workoutsSaved: result.workouts.length,
+          activityDays: result.activity.length,
+        }),
+      )) as ImportJobView;
+      setState({ kind: "job", job });
+    } catch (err) {
+      const cancelled = controller.signal.aborted;
+      const message = cancelled ? t.upload.cancelled : err instanceof ImportFailure ? err.message : t.upload.errors.generic;
+      if (!cancelled && !(err instanceof ImportFailure)) console.error("[import] save failed:", err);
+      if (id) {
+        await fetch(`/api/import/${id}/finish`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: "FAILED", error: message }),
+        }).catch(() => {});
+      }
+      setState({ kind: "idle", error: cancelled ? undefined : message });
+      router.refresh();
+    } finally {
+      abort.current = null;
+    }
+  }
+
+  function cancel() {
+    worker.current?.terminate();
+    worker.current = null;
+    if (abort.current) abort.current.abort();
+    else setState({ kind: "idle" });
+  }
+
+  const cancelButton = (
+    <button type="button" onClick={cancel} className="text-[15px] font-medium text-primary">
+      {t.upload.cancel}
+    </button>
+  );
 
   if (state.kind === "idle") return <DropZone onFile={upload} error={state.error} />;
 
-  if (state.kind === "uploading") {
+  if (state.kind === "parsing") {
     return (
       <ProgressCard
         fileName={state.fileName}
-        fileBytes={state.total}
-        step={0}
-        label={t.upload.uploading}
-        progress={state.total ? state.loaded / state.total : null}
-        detail={t.upload.progressOf(f.bytes(state.loaded), f.bytes(state.total))}
-        action={
-          <button type="button" onClick={() => xhr.current?.abort()} className="text-[15px] font-medium text-primary">
-            {t.upload.cancel}
-          </button>
-        }
+        fileBytes={state.fileBytes}
+        step={state.phase === "open" ? 0 : 1}
+        label={state.phase === "open" ? t.upload.opening : t.upload.reading}
+        progress={state.phase === "read" ? state.progress : null}
+        detail={state.phase === "open" ? t.upload.openingHint : t.upload.recordsRead(f.number(state.recordsRead), false)}
+        action={cancelButton}
+      />
+    );
+  }
+
+  if (state.kind === "saving") {
+    return (
+      <ProgressCard
+        fileName={state.fileName}
+        fileBytes={state.fileBytes}
+        step={2}
+        label={t.upload.saving}
+        progress={state.total ? state.sent / state.total : null}
+        detail={t.upload.batchesSent(state.sent, state.total)}
+        action={cancelButton}
       />
     );
   }
@@ -126,6 +254,7 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
     />
   );
 }
+
 
 const buttonClass =
   "inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-[17px] font-semibold text-primary-foreground transition-opacity active:opacity-80";

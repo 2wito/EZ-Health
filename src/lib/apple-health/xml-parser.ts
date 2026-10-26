@@ -292,7 +292,8 @@ export class AppleHealthXmlParser {
     if (!raw) return "";
     let copy = this.sources.get(raw);
     if (copy === undefined) {
-      copy = Buffer.from(raw, "utf8").toString("utf8");
+      // A JSON round trip makes a flat copy, and works in browsers too (no Buffer there).
+      copy = JSON.parse(JSON.stringify(raw)) as string;
       this.sources.set(copy, copy);
     }
     return copy;

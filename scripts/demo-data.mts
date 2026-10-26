@@ -7,10 +7,11 @@
 //   npm run demo:clear    # remove it again
 import "dotenv/config";
 import { createWriteStream } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { once } from "node:events";
+import JSZip from "jszip";
 import { runImport } from "@/lib/apple-health/import";
 import { clearDemoData, DEMO_JOB_NAME } from "@/lib/demo/demo-data";
 import { prisma } from "@/lib/prisma";
@@ -42,6 +43,18 @@ async function importDemo() {
       ? `Imported ${DAYS} days of demo data: ${done.recordsRead} records, ${done.sleepNights} nights, ${done.workoutsSaved} workouts.`
       : `Demo import failed: ${done.error}`,
   );
+}
+
+/** Writes the demo as export.xml and as an export.zip laid out like the Health app's. */
+async function exportFiles(dir: string) {
+  await mkdir(dir, { recursive: true });
+  const xml = path.join(dir, "export.xml");
+  await writeExport(xml);
+  const zip = new JSZip();
+  zip.file("apple_health_export/export.xml", await readFile(xml));
+  const zipPath = path.join(dir, "export.zip");
+  await writeFile(zipPath, await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
+  console.log(`Wrote ${xml} and ${zipPath}`);
 }
 
 // ─── Generator ───────────────────────────────────────────────────────────────
@@ -202,5 +215,6 @@ async function writeExport(file: string) {
 const command = process.argv[2];
 if (command === "clear") await clear();
 else if (command === "import") await importDemo();
-else console.error("Usage: tsx scripts/demo-data.mts <import|clear>");
+else if (command === "export" && process.argv[3]) await exportFiles(path.resolve(process.argv[3]));
+else console.error("Usage: tsx scripts/demo-data.mts <import|clear|export <dir>>");
 await prisma.$disconnect();

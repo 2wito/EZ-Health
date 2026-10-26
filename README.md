@@ -12,7 +12,7 @@
 
 ## Highlights
 
-- **Multi-gigabyte imports with flat memory.** `export.zip` is unzipped and parsed as a stream (SAX), never loaded whole. A 1.38M-record export imports in about 58 s while memory stays around 32 MB (it was 678 MB before source strings were interned).
+- **Imports of any size, even on serverless.** `export.zip` is unzipped and parsed as a stream (SAX) in a Web Worker, and only the compact parsed records are uploaded, in batches of 3 MB at most, under Vercel's 4.5 MB request limit. The same parser runs the CLI import, where a 1.38M-record export takes about 58 s while memory stays around 32 MB (it was 678 MB before source strings were interned).
 - **Idempotent bulk writes.** Upserts use Postgres `unnest()` + `ON CONFLICT`, thousands of rows per statement, so re-importing the same file or re-sent webhook windows update data instead of duplicating it.
 - **Timezone-correct analytics.** Every sample keeps its original UTC offset, plus precomputed local date, hour and weekday. "Most active hour" and "bedtime" mean the time on your clock, even across travel.
 - **Multi-device de-duplication.** iPhone and Apple Watch both log the same activity. Data is stored per source and merged at query time, for example the best-measured night for sleep and the per-hour maximum for active energy.
@@ -59,9 +59,9 @@ All scores are documented where they're computed: `src/lib/analytics/` (`trend.t
 
 ```mermaid
 flowchart LR
-  A["iPhone Health export<br/>export.zip / export.xml"] -->|"/upload (streamed)"| P["Streaming unzip<br/>+ SAX parser"]
+  A["iPhone Health export<br/>export.zip / export.xml"] -->|"/upload"| P["In-browser Web Worker:<br/>streaming unzip + SAX parser"]
   B["Health Auto Export app<br/>(daily automation)"] -->|"POST /api/health-ingest<br/>x-api-key"| Z["Zod validation<br/>+ normalisation"]
-  P --> S["Idempotent bulk upserts<br/>(unnest + ON CONFLICT)"]
+  P -->|"POST /api/import<br/>batches ≤ 3 MB, zod-validated"| S["Idempotent bulk upserts<br/>(unnest + ON CONFLICT)"]
   Z --> S
   S --> DB[("PostgreSQL<br/>Prisma 7")]
   DB --> Q["Query + analytics layer<br/>trends, scores, de-dup"]
@@ -88,11 +88,12 @@ Other scripts: `npm run ingest:sample` posts `scripts/sample-payload.json` to th
 
 On iPhone: Health → profile picture → **Export All Health Data**, then drop `export.zip` (or `export.xml`) on **/upload**.
 
-- The upload streams to a temp file and is parsed in the background with a SAX parser (`saxes`), so memory stays flat regardless of file size; the page shows live progress.
+- The file never leaves the browser. A Web Worker unzips it with JSZip and parses `export.xml` as a stream with the same SAX parser the server uses (`saxes`), so the page stays responsive and shows live progress.
+- Only the parsed records are sent, in batches of at most 5,000 records and 3 MB, to `/api/import`. That keeps every request far below serverless body limits (Vercel: 4.5 MB), so exports of any size import on Vercel. The server validates each batch with zod before writing it.
 - Heart rate, respiratory rate and SpO2 are rolled into hourly min/avg/max buckets; active/basal energy, steps and exercise minutes into hourly totals (per source). Resting HR, HRV and VO2 max, sleep segments, workouts and Activity ring totals are stored as-is.
-- Re-importing is safe: everything is upserted.
-- For very large exports you can skip the browser: `npm run import:export -- path/to/export.zip`
-- Uploads go through the Node server, so this needs a long-running server (local / self-hosted). Serverless hosts cap request bodies (Vercel: 4.5 MB); on Vercel, import with the CLI script above against the same database.
+- Re-importing is safe: everything is upserted, so a retried batch or a second import never duplicates data. Sleep nights are rebuilt from all stored segments, so a night split across batches comes out whole.
+- You can also import from the command line, straight into any database: `npm run import:export -- path/to/export.zip`
+- To try the upload without your own data: `npm run demo:export -- some-folder` writes a demo `export.zip` and `export.xml`.
 
 ## Connecting Health Auto Export (iOS)
 
@@ -135,8 +136,11 @@ Unit tests cover the logic the dashboards depend on: the scores and trend verdic
 | `src/lib/health-export/ingest.ts` | Webhook orchestration |
 | `src/lib/health-export/store.ts` | Shared idempotent bulk writers (samples, sleep, workouts, daily activity) |
 | `src/lib/apple-health/xml-parser.ts` | Streaming export.xml parser (pure, no I/O) |
-| `src/lib/apple-health/import.ts` | ZIP/XML import job: unzip stream → parse → save, with progress |
-| `src/app/api/upload-xml/` | Upload endpoint + job status for polling |
+| `src/lib/apple-health/parse.worker.ts` | Browser import: unzip + parse in a Web Worker |
+| `src/lib/apple-health/batches.ts`, `batch-schema.ts` | Splitting parsed records into small batches; zod validation on the server |
+| `src/app/api/import/` | Browser import: start, save a batch, finish |
+| `src/lib/apple-health/import.ts` | Server-side import (CLI, and raw uploads to `/api/upload-xml` on self-hosted servers) |
+| `src/app/api/upload-xml/` | Raw upload endpoint + job status for polling |
 | `src/lib/analytics/` | Pure scoring and trend functions |
 | `src/lib/queries/` | Per-dashboard data loading |
 | `src/lib/coach/` | Coach snapshot and model selection |

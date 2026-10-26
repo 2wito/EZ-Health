@@ -17,7 +17,8 @@
     "demo:import": "tsx scripts/demo-data.mts import",
     "demo:clear": "tsx scripts/demo-data.mts clear",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "demo:export": "tsx scripts/demo-data.mts export"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.105",
