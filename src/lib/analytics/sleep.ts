@@ -68,3 +68,66 @@ export function consistencyScore(bedtimes: number[], wakeTimes: number[]): numbe
   const avgSd = (sd(bedtimes) + sd(wakeTimes)) / 2;
   return Math.max(0, Math.min(100, Math.round(100 - (avgSd / 120) * 100)));
 }
+
+const HOUR_MS = 3_600_000;
+
+/** Heart rate is stored as hourly buckets (min/avg/max), so the dip is known to the hour. */
+export interface HourlyHeartRate {
+  /** Start of the hour. */
+  hour: Date;
+  min: number;
+  /** The hour's average, used to break ties between equal minimums. */
+  avg?: number | null;
+}
+
+export type DipHalf = "first" | "middle" | "second";
+
+export interface HeartRateDip {
+  /** Lowest heart rate during the night. */
+  bpm: number;
+  /** Start of the hour it fell in. */
+  hour: Date;
+  /** Where the dip's hour sits in the night: 0 = fell asleep, 1 = woke up (hour midpoint, clamped). */
+  position: number;
+  /**
+   * First or second half of the night. An hour that straddles the midpoint is
+   * "middle": hourly data can't tell which side the minimum fell on.
+   */
+  half: DipHalf;
+}
+
+/**
+ * Sleeping heart-rate dip: the lowest hourly minimum between falling asleep
+ * and waking up. Heart rate is whole numbers, so several hours often share the
+ * minimum: the tie goes to the hour with the lowest average (where it stayed
+ * low longest), then the earliest. Null without readings that night.
+ */
+export function heartRateDip(hours: HourlyHeartRate[], sleepStart: Date, sleepEnd: Date): HeartRateDip | null {
+  const start = sleepStart.getTime();
+  const end = sleepEnd.getTime();
+  if (end <= start) return null;
+
+  let best: HourlyHeartRate | null = null;
+  for (const h of hours) {
+    const t = h.hour.getTime();
+    if (t >= end || t + HOUR_MS <= start) continue; // hour doesn't overlap the night
+    if (!best || h.min < best.min) {
+      best = h;
+      continue;
+    }
+    if (h.min > best.min) continue;
+    const [a, b] = [h.avg ?? Infinity, best.avg ?? Infinity];
+    if (a < b || (a === b && t < best.hour.getTime())) best = h;
+  }
+  if (!best) return null;
+
+  const from = best.hour.getTime();
+  const mid = (start + end) / 2;
+  const center = Math.min(end, Math.max(start, from + HOUR_MS / 2));
+  return {
+    bpm: best.min,
+    hour: best.hour,
+    position: (center - start) / (end - start),
+    half: from + HOUR_MS <= mid ? "first" : from >= mid ? "second" : "middle",
+  };
+}

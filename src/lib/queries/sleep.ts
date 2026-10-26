@@ -12,7 +12,14 @@ import {
   type Granularity,
   type RangeKey,
 } from "@/lib/analytics/range";
-import { consistencyScore, minutesSinceNoon, sleepScore } from "@/lib/analytics/sleep";
+import {
+  consistencyScore,
+  heartRateDip,
+  minutesSinceNoon,
+  sleepScore,
+  type DipHalf,
+  type HourlyHeartRate,
+} from "@/lib/analytics/sleep";
 import { mean, splitByWindow, windowTrend, type Trend } from "@/lib/analytics/trend";
 import { prisma } from "@/lib/prisma";
 
@@ -51,6 +58,13 @@ export interface SleepData {
   averages: { total: number; deep: number; core: number; rem: number; awake: number; unspecified: number } | null;
   consistency: number | null;
   trends: { score: Trend; duration: Trend; bed: Trend; wake: Trend; consistency: Trend };
+  /** Sleeping heart-rate dip, known to the hour (heart rate is stored hourly). */
+  hrDip: {
+    /** Most recent night. Times are minutes since noon, like the rest of the sleep data. */
+    last: { day: string; bpm: number; from: number; bed: number; wake: number; position: number; half: DipHalf } | null;
+    /** Every night in the window that had heart rate readings, oldest first. */
+    nights: { day: string; bpm: number; from: number; half: DipHalf }[];
+  };
 }
 
 export type SleepResult = { ok: true; data: SleepData | null } | { ok: false; error: string };
@@ -158,6 +172,8 @@ async function load(range: RangeKey): Promise<SleepData | null> {
     };
   }
 
+  const hrDip = await loadHeartRateDips(current);
+
   const avgOf = (f: (n: SleepNight) => number) => mean(nights.map(f)) ?? 0;
   const byDay = new Map(nights.map((n) => [n.day, n]));
   const granularity = granularityFor(w.days);
@@ -185,6 +201,7 @@ async function load(range: RangeKey): Promise<SleepData | null> {
         }
       : null,
     consistency,
+    hrDip,
     trends: {
       score: trend((n) => n.score, { better: "higher", threshold: 3 }),
       duration: trend((n) => n.total, { better: "higher", threshold: 0.25 }),
@@ -227,4 +244,56 @@ function bucketCalendar(days: { day: string; night: SleepNight | null }[], g: Gr
     };
     return { day, night };
   });
+}
+
+/** The heart-rate dip of each night: the lowest hourly minimum between falling asleep and waking. */
+async function loadHeartRateDips(rows: NightRow[]): Promise<SleepData["hrDip"]> {
+  const asleep = rows.filter((r): r is NightRow & { sleepStart: Date; sleepEnd: Date } => !!r.sleepStart && !!r.sleepEnd);
+  if (!asleep.length) return { last: null, nights: [] };
+
+  const HOUR = 3_600_000;
+  const from = new Date(Math.min(...asleep.map((r) => r.sleepStart.getTime())) - HOUR);
+  const to = new Date(Math.max(...asleep.map((r) => r.sleepEnd.getTime())));
+  // Every source's hourly minimum; the dip takes the lowest, so no de-duplication is needed.
+  const hours: HourlyHeartRate[] = (
+    await prisma.metricSample.findMany({
+      where: { type: "HEART_RATE", min: { not: null }, timestamp: { gte: from, lte: to } },
+      select: { timestamp: true, min: true, avg: true },
+      orderBy: { timestamp: "asc" },
+    })
+  ).map((s) => ({ hour: s.timestamp, min: s.min!, avg: s.avg }));
+
+  // Sorted hours: find each night's slice by binary search rather than scanning them all.
+  const firstAtOrAfter = (t: number) => {
+    let lo = 0;
+    let hi = hours.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (hours[mid].hour.getTime() < t) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+
+  const nights = asleep.flatMap((r) => {
+    const slice = hours.slice(firstAtOrAfter(r.sleepStart.getTime() - HOUR), firstAtOrAfter(r.sleepEnd.getTime()));
+    const dip = heartRateDip(slice, r.sleepStart, r.sleepEnd);
+    if (!dip) return [];
+    return [
+      {
+        day: isoDay(r.date),
+        bpm: Math.round(dip.bpm),
+        from: minutesSinceNoon(dip.hour, r.tzOffsetMin, r.date),
+        bed: minutesSinceNoon(r.sleepStart, r.tzOffsetMin, r.date),
+        wake: minutesSinceNoon(r.sleepEnd, r.tzOffsetMin, r.date),
+        position: dip.position,
+        half: dip.half,
+      },
+    ];
+  });
+
+  return {
+    last: nights.at(-1) ?? null,
+    nights: nights.map(({ day, bpm, from, half }) => ({ day, bpm, from, half })),
+  };
 }

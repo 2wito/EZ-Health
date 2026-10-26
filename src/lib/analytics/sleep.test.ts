@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clockLabel, consistencyScore, durationLabel, minutesSinceNoon, sleepScore } from "./sleep";
+import { clockLabel, consistencyScore, durationLabel, heartRateDip, minutesSinceNoon, sleepScore } from "./sleep";
 
 const night = new Date("2026-10-25T00:00:00Z"); // the wake date, as stored (@db.Date)
 
@@ -62,5 +62,56 @@ describe("consistencyScore", () => {
   it("is 100 for an identical schedule and 0 at two hours of variation", () => {
     expect(consistencyScore([690, 690, 690], [1170, 1170, 1170])).toBe(100);
     expect(consistencyScore([600, 840, 600, 840], [1050, 1290, 1050, 1290])).toBe(0);
+  });
+});
+
+describe("heartRateDip", () => {
+  // Asleep 23:00 → 07:00 UTC, so the midpoint is 03:00.
+  const start = new Date("2026-10-24T23:00:00Z");
+  const end = new Date("2026-10-25T07:00:00Z");
+  const hr = (iso: string, min: number) => ({ hour: new Date(iso), min });
+
+  it("finds the lowest hourly minimum during the night", () => {
+    const dip = heartRateDip(
+      [hr("2026-10-24T22:00:00Z", 40), hr("2026-10-25T00:00:00Z", 52), hr("2026-10-25T01:00:00Z", 48), hr("2026-10-25T05:00:00Z", 50), hr("2026-10-25T08:00:00Z", 39)],
+      start,
+      end,
+    )!;
+    // 22:00 and 08:00 are outside the night (awake), so they don't count.
+    expect(dip.bpm).toBe(48);
+    expect(dip.hour.toISOString()).toBe("2026-10-25T01:00:00.000Z");
+    expect(dip.half).toBe("first");
+    expect(dip.position).toBeCloseTo(2.5 / 8);
+  });
+
+  it("calls the second half, and an hour across the midpoint the middle", () => {
+    expect(heartRateDip([hr("2026-10-25T05:00:00Z", 47)], start, end)!.half).toBe("second");
+    expect(heartRateDip([hr("2026-10-25T03:00:00Z", 47)], start, end)!.half).toBe("second"); // starts at the midpoint
+    const odd = heartRateDip([hr("2026-10-25T02:00:00Z", 47)], start, new Date("2026-10-25T06:00:00Z"))!;
+    expect(odd.half).toBe("middle"); // midpoint 02:30 falls inside 02:00–03:00
+  });
+
+  it("breaks ties between equal minimums by the lower hourly average", () => {
+    const dip = heartRateDip(
+      [
+        { hour: new Date("2026-10-25T00:00:00Z"), min: 53, avg: 55.4 },
+        { hour: new Date("2026-10-25T05:00:00Z"), min: 53, avg: 54.1 },
+      ],
+      start,
+      end,
+    )!;
+    expect(dip.hour.toISOString()).toBe("2026-10-25T05:00:00.000Z");
+    expect(dip.half).toBe("second");
+  });
+
+  it("counts a partly overlapping first hour, and with no averages breaks ties by the earliest hour", () => {
+    const dip = heartRateDip([hr("2026-10-24T22:30:00Z", 50), hr("2026-10-25T04:00:00Z", 50)], start, end)!;
+    expect(dip.hour.toISOString()).toBe("2026-10-24T22:30:00.000Z");
+    expect(dip.position).toBe(0); // the hour's midpoint is before falling asleep, so it's clamped to the start
+  });
+
+  it("is null without readings during the night", () => {
+    expect(heartRateDip([hr("2026-10-24T12:00:00Z", 45)], start, end)).toBeNull();
+    expect(heartRateDip([], start, end)).toBeNull();
   });
 });

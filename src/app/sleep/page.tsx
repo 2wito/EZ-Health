@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ChartCard } from "@/components/charts/chart-card";
 import { Hypnogram, ScheduleChart, StagesChart } from "@/components/charts/sleep-charts";
+import { HeartRateDipCard } from "@/components/charts/hr-dip";
 import { StageMix } from "@/components/charts/stage-mix";
 import { STAGES, UNSPECIFIED } from "@/components/charts/stages";
 import { PageHeader } from "@/components/shell/page-header";
@@ -117,7 +118,17 @@ async function SleepContent({ data }: { data: SleepData }) {
         >
           {lastNight && lastNight.segments.length > 0 ? (
             <>
-              <Hypnogram segments={lastNight.segments} />
+              <Hypnogram
+                segments={lastNight.segments}
+                dip={
+                  data.hrDip.last?.day === lastNight.night.day
+                    ? {
+                        from: data.hrDip.last.from,
+                        label: t.sleep.dip.shaded(t.sleep.span(f.clockLabel(data.hrDip.last.from), f.clockLabel(data.hrDip.last.from + 60))),
+                      }
+                    : undefined
+                }
+              />
               <StageMix mix={lastNight.night} />
             </>
           ) : (
@@ -145,6 +156,8 @@ async function SleepContent({ data }: { data: SleepData }) {
           <ScheduleChart calendar={calendar} avgBed={trends.bed.current} avgWake={trends.wake.current} granularity={g} />
         </ChartCard>
       </div>
+
+      <HeartRateDipCard dip={data.hrDip} />
 
       <ChartCard
         title={t.sleep.stagesTitle}

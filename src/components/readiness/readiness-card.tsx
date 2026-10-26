@@ -4,6 +4,7 @@ import type { Readiness, ReadinessDriver, ReadinessLevel } from "@/lib/analytics
 import type { Format } from "@/lib/format";
 import { getI18n } from "@/lib/i18n/server";
 import type { Messages } from "@/lib/i18n/messages";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 
 // Readiness bands and driver tones share one validated status palette
@@ -158,22 +159,6 @@ function Gauge({ score, color, label, outOf }: { score: number; color: string; l
         <span className="mt-1 block text-[12px] font-medium text-muted-foreground">{outOf}</span>
       </div>
     </div>
-  );
-}
-
-/** Status always pairs its color with an icon and a word. Text stays in the text color. */
-function StatusBadge({ color, icon: Icon, label, large }: { color: string; icon: LucideIcon; label: string; large?: boolean }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full font-semibold text-foreground",
-        large ? "mt-1 py-1 pe-2.5 ps-2 text-[15px]" : "py-0.5 pe-2 ps-1.5 text-[12px]",
-      )}
-      style={{ background: `color-mix(in srgb, ${color} 18%, transparent)` }}
-    >
-      <Icon aria-hidden className={large ? "size-4" : "size-3.5"} strokeWidth={2.5} style={{ color }} />
-      {label}
-    </span>
   );
 }
 

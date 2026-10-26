@@ -16,7 +16,14 @@ const AXIS_TICK = { fill: "var(--muted-foreground)", fontSize: 12 };
 const ROW_H = 36;
 
 /** Last night's stages over time, one row per stage, like the Health app. */
-export function Hypnogram({ segments }: { segments: StageSegment[] }) {
+export function Hypnogram({
+  segments,
+  dip,
+}: {
+  segments: StageSegment[];
+  /** Start of the hour with the lowest heart rate (minutes since noon), shaded on the timeline. */
+  dip?: { from: number; label: string };
+}) {
   const { t, f } = useI18n();
   const [active, setActive] = useState<number | null>(null);
   const hasUnspecified = segments.some((s) => s.stage === "ASLEEP");
@@ -62,6 +69,13 @@ export function Hypnogram({ segments }: { segments: StageSegment[] }) {
           {rows.map((r, i) => (
             <div key={r.stage} className="absolute inset-x-0 border-b border-border" style={{ top: i * ROW_H, height: ROW_H }} />
           ))}
+          {dip && dip.from < end && dip.from + 60 > start && (
+            <div
+              aria-hidden
+              className="absolute inset-y-0 rounded-[4px] bg-heart/10"
+              style={{ left: x(Math.max(start, dip.from)), width: `${((Math.min(end, dip.from + 60) - Math.max(start, dip.from)) / span) * 100}%` }}
+            />
+          )}
           {/* Hairline connectors between consecutive stages. */}
           {segments.slice(1).map((s, i) => {
             const prev = segments[i];
@@ -110,6 +124,12 @@ export function Hypnogram({ segments }: { segments: StageSegment[] }) {
           ))}
         </div>
       </div>
+      {dip && (
+        <p className="mt-3 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+          <span aria-hidden className="size-2.5 rounded-[3px] bg-heart/25" />
+          {dip.label}
+        </p>
+      )}
     </div>
   );
 }
