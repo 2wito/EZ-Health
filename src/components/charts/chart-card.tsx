@@ -1,5 +1,6 @@
 import { Card, type Tint } from "@/components/ui/card";
-import { formatChartDay } from "./format";
+import type { Format } from "@/lib/format";
+import { getI18n } from "@/lib/i18n/server";
 
 export interface LegendItem {
   label: string;
@@ -12,7 +13,7 @@ export interface LegendItem {
  * Card around a chart: title, legend (only for 2+ series), the chart, and a
  * "Show as table" twin so no value depends on hovering.
  */
-export function ChartCard({
+export async function ChartCard({
   title,
   description,
   legend,
@@ -27,6 +28,7 @@ export function ChartCard({
   table?: { columns: string[]; rows: (string | number | null)[][] };
   children: React.ReactNode;
 }) {
+  const { t } = await getI18n();
   return (
     <Card tint={tint} className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
@@ -57,11 +59,11 @@ export function ChartCard({
       {table && table.rows.length > 0 && (
         <details className="group text-[13px]">
           <summary className="cursor-pointer select-none font-medium text-primary marker:content-none">
-            <span className="group-open:hidden">Show as table</span>
-            <span className="hidden group-open:inline">Hide table</span>
+            <span className="group-open:hidden">{t.common.showTable}</span>
+            <span className="hidden group-open:inline">{t.common.hideTable}</span>
           </summary>
           <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-border">
-            <table className="w-full text-left tabular-nums">
+            <table className="w-full text-start tabular-nums">
               <thead className="sticky top-0 bg-card-elevated text-muted-foreground">
                 <tr>
                   {table.columns.map((c) => (
@@ -94,9 +96,10 @@ export function ChartCard({
 export function dailyTableRows<T extends { day: string }>(
   days: T[],
   cells: ((d: T) => number | string | null)[],
+  f: Format,
 ): (string | number | null)[][] {
   return days
     .filter((d) => cells.some((c) => c(d) !== null))
     .reverse()
-    .map((d) => [formatChartDay(d.day, 0, true), ...cells.map((c) => c(d))]);
+    .map((d) => [f.chartDay(d.day, 0, true), ...cells.map((c) => c(d))]);
 }

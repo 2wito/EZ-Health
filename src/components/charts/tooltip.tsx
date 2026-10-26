@@ -1,7 +1,16 @@
-/** Frosted readout used by every chart's hover tooltip. */
+"use client";
+
+import { localeDir } from "@/lib/i18n/config";
+import { useI18n } from "@/lib/i18n/client";
+
+/** Frosted readout used by every chart's hover tooltip. Charts render LTR, so the box sets the page direction again. */
 export function TooltipBox({ title, children }: { title: string; children: React.ReactNode }) {
+  const { locale } = useI18n();
   return (
-    <div className="min-w-36 rounded-xl border border-border bg-popover/90 px-3 py-2 text-[13px] shadow-lg backdrop-blur-xl">
+    <div
+      dir={localeDir(locale)}
+      className="min-w-36 rounded-xl border border-border bg-popover/90 px-3 py-2 text-[13px] shadow-lg backdrop-blur-xl"
+    >
       <p className="mb-1 text-muted-foreground">{title}</p>
       {children}
     </div>

@@ -4,17 +4,19 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTheme } from "next-themes";
 import { useEffect, useId, useState } from "react";
+import { useI18n } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 const OPTIONS = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "Auto", icon: Monitor },
+  { value: "light", label: "light", icon: Sun },
+  { value: "dark", label: "dark", icon: Moon },
+  { value: "system", label: "auto", icon: Monitor },
 ] as const;
 
 /** iOS segmented control for Light / Dark / Auto. */
 export function ThemeSwitcher({ compact = false, className }: { compact?: boolean; className?: string }) {
   const { theme, setTheme } = useTheme();
+  const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
   const reduceMotion = useReducedMotion();
   const thumbId = useId();
@@ -26,7 +28,7 @@ export function ThemeSwitcher({ compact = false, className }: { compact?: boolea
   return (
     <div
       role="radiogroup"
-      aria-label="Appearance"
+      aria-label={t.shell.appearance}
       className={cn("grid grid-cols-3 rounded-[9px] bg-muted p-0.5", compact ? "w-[108px]" : "w-full", className)}
     >
       {OPTIONS.map(({ value, label, icon: Icon }) => {
@@ -37,7 +39,7 @@ export function ThemeSwitcher({ compact = false, className }: { compact?: boolea
             type="button"
             role="radio"
             aria-checked={selected}
-            aria-label={compact ? label : undefined}
+            aria-label={compact ? t.shell[label] : undefined}
             onClick={() => setTheme(value)}
             className="relative flex h-7 items-center justify-center gap-1.5 rounded-[7px] text-[13px] font-medium"
           >
@@ -49,7 +51,7 @@ export function ThemeSwitcher({ compact = false, className }: { compact?: boolea
               />
             )}
             <Icon aria-hidden className="relative size-3.5" strokeWidth={2.25} />
-            {!compact && <span className="relative">{label}</span>}
+            {!compact && <span className="relative">{t.shell[label]}</span>}
           </button>
         );
       })}
@@ -60,6 +62,7 @@ export function ThemeSwitcher({ compact = false, className }: { compact?: boolea
 /** Single round button for tight spaces (phone nav bar): flips light ⇄ dark. */
 export function ThemeToggleButton({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
+  const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -69,7 +72,7 @@ export function ThemeToggleButton({ className }: { className?: string }) {
     <button
       type="button"
       onClick={() => setTheme(dark ? "light" : "dark")}
-      aria-label={dark ? "Switch to light appearance" : "Switch to dark appearance"}
+      aria-label={dark ? t.shell.toLight : t.shell.toDark}
       className={cn("grid size-8 place-items-center rounded-full bg-muted text-primary", className)}
     >
       {mounted && <Icon aria-hidden className="size-[17px]" strokeWidth={2.25} />}

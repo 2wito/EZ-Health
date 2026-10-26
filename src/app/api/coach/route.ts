@@ -2,6 +2,7 @@ import { convertToModelMessages, createUIMessageStreamResponse, streamText, toUI
 import { NextResponse } from "next/server";
 import { getCoachModel } from "@/lib/coach/model";
 import { getCoachSnapshot, snapshotToBriefing } from "@/lib/coach/snapshot";
+import { isLocale, type Locale } from "@/lib/i18n/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,9 +23,19 @@ How to coach:
 - Keep answers under about 200 words unless a plan is requested. Use short markdown headings and lists. No tables.
 - If something isn't in the data, say so; never invent readings or workouts.
 - You are not a doctor. If the data shows warning signs (resting heart rate several bpm above baseline for days with very low HRV) or the person mentions pain, illness, chest symptoms or dizziness, recommend rest and seeing a medical professional.
-
-Data briefing:
 `;
+
+// The briefing stays English; only the reply language changes.
+const LANGUAGE: Record<Locale, string> = {
+  en: "",
+  he: `
+Language: always answer in Hebrew, written naturally for an Israeli reader, even though the briefing is in English. Use the 24-hour clock, metric units and Hebrew day names. Keep exercise names that are usually said in English (intervals, tempo, RPE) as they are.
+`,
+};
+
+const instructionsFor = (locale: Locale, briefing: string) => `${INSTRUCTIONS}${LANGUAGE[locale]}
+Data briefing:
+${briefing}`;
 
 export async function POST(req: Request) {
   const coach = getCoachModel();
@@ -36,8 +47,10 @@ export async function POST(req: Request) {
   }
 
   let messages: UIMessage[];
+  let locale: Locale = "en";
   try {
-    const body = (await req.json()) as { messages?: unknown };
+    const body = (await req.json()) as { messages?: unknown; locale?: unknown };
+    if (isLocale(body.locale)) locale = body.locale;
     if (!Array.isArray(body.messages) || body.messages.length === 0) throw new Error();
     messages = (body.messages as UIMessage[]).slice(-MAX_MESSAGES);
   } catch {
@@ -49,7 +62,7 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: coach.model,
-    instructions: INSTRUCTIONS + briefing,
+    instructions: instructionsFor(locale, briefing),
     messages: await convertToModelMessages(messages),
     maxOutputTokens: 1200,
     // The client only sees a generic error; keep the details in the server log.

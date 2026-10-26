@@ -149,10 +149,10 @@
   --color-stage-deep: var(--stage-deep);
 
   /* SF Pro on Apple devices, Inter elsewhere. */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter), system-ui, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", var(--font-inter), system-ui, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter), var(--font-hebrew), system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", var(--font-inter), var(--font-hebrew), system-ui, sans-serif;
   /* Health-app numerals: SF Pro Rounded where available. */
-  --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, var(--font-inter), system-ui, sans-serif;
+  --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, var(--font-inter), var(--font-hebrew), system-ui, sans-serif;
 
   --shadow-card: var(--card-shadow);
 }
@@ -178,6 +178,15 @@
 @utility glow {
   background-image: radial-gradient(
     110% 90% at 0% 0%,
+    color-mix(in srgb, var(--tint, transparent) var(--glow-strength), transparent),
+    transparent 62%
+  );
+}
+
+/* The glow sits in the leading corner, which is the top right in Hebrew. */
+[dir="rtl"] .glow {
+  background-image: radial-gradient(
+    110% 90% at 100% 0%,
     color-mix(in srgb, var(--tint, transparent) var(--glow-strength), transparent),
     transparent 62%
   );

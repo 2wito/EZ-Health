@@ -1,27 +1,33 @@
 import { Sparkles } from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
 import { CoachChat } from "@/components/coach/coach-chat";
 import { ReadinessCard } from "@/components/coach/readiness-card";
-import { formatChartDay } from "@/components/charts/format";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card } from "@/components/ui/card";
 import { DatabaseError } from "@/components/ui/database-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getCoachModel } from "@/lib/coach/model";
 import { getCoachSnapshot, type CoachSnapshot } from "@/lib/coach/snapshot";
+import { getI18n } from "@/lib/i18n/server";
 
-export const metadata = { title: "AI Coach" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getI18n();
+  return { title: t.nav.coach.title };
+}
 
 export default async function CoachPage() {
   await connection();
+  const { t, f } = await getI18n();
+  const title = t.nav.coach.title;
   let snapshot: CoachSnapshot | null;
   try {
     snapshot = await getCoachSnapshot();
   } catch (err) {
     return (
       <>
-        <PageHeader title="AI Coach" />
+        <PageHeader title={title} />
         <DatabaseError message={err instanceof Error ? err.message : String(err)} />
       </>
     );
@@ -30,14 +36,11 @@ export default async function CoachPage() {
   if (!snapshot) {
     return (
       <>
-        <PageHeader title="AI Coach" />
-        <EmptyState icon={Sparkles} tile="bg-spectrum" title="Your coach needs some data">
-          <p>
-            With a week or two of heart, sleep and workout history, the coach suggests what to train today and builds
-            running and strength plans around how recovered you are.
-          </p>
+        <PageHeader title={title} />
+        <EmptyState icon={Sparkles} tile="bg-spectrum" title={t.coach.emptyTitle}>
+          <p>{t.coach.emptyBody}</p>
           <Link href="/upload" className="mt-3 inline-block font-medium text-primary">
-            Import an Apple Health export
+            {t.common.importExport}
           </Link>
         </EmptyState>
       </>
@@ -47,20 +50,19 @@ export default async function CoachPage() {
   const coach = getCoachModel();
   return (
     <>
-      <PageHeader title="AI Coach" subtitle={`Based on your data through ${formatChartDay(snapshot.asOf, 0, true)}`} />
+      <PageHeader title={title} subtitle={t.coach.basedOn(f.chartDay(snapshot.asOf, 0, true))} />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         <div className="flex flex-col gap-3">
           <ReadinessCard readiness={snapshot.readiness} />
           <Card>
-            <h2 className="text-[15px] font-semibold">What the coach sees</h2>
+            <h2 className="text-[15px] font-semibold">{t.coach.sees}</h2>
             <ul className="mt-2 space-y-1.5 text-[14px] leading-[20px] text-muted-foreground">
-              <li>Today&apos;s readiness, HRV, resting heart rate and last night&apos;s sleep</li>
-              <li>Your 7, 30 and 90 day fitness and recovery trends</li>
-              <li>{snapshot.workouts.length} workouts from the last 14 days and 4 weeks of training volume</li>
+              <li>{t.coach.sees1}</li>
+              <li>{t.coach.sees2}</li>
+              <li>{t.coach.sees3(snapshot.workouts.length)}</li>
             </ul>
             <p className="mt-3 text-[13px] leading-[18px] text-subtle-foreground">
-              When you ask a question, this summary (not your raw data) is sent to {coach ? coach.label.split(" ")[0] : "the AI provider"}.
-              The coach isn&apos;t a doctor.
+              {t.coach.privacy(coach ? coach.label.split(" ")[0] : t.coach.theProvider)}
             </p>
           </Card>
         </div>

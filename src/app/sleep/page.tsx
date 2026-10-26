@@ -1,29 +1,33 @@
 import { AlarmClock, BedDouble, CalendarCheck, Moon, Sparkles } from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ChartCard } from "@/components/charts/chart-card";
-import { formatChartDay } from "@/components/charts/format";
 import { Hypnogram, ScheduleChart, StagesChart } from "@/components/charts/sleep-charts";
 import { StageMix } from "@/components/charts/stage-mix";
-import { STAGES } from "@/components/charts/stages";
+import { STAGES, UNSPECIFIED } from "@/components/charts/stages";
 import { PageHeader } from "@/components/shell/page-header";
 import { DatabaseError } from "@/components/ui/database-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { RangePicker } from "@/components/ui/range-picker";
 import { TrendTile } from "@/components/ui/trend-tile";
 import { parseRange, RANGES } from "@/lib/analytics/range";
-import { clockLabel, durationLabel } from "@/lib/analytics/sleep";
+import { getI18n } from "@/lib/i18n/server";
 import { getSleepData, type SleepData } from "@/lib/queries/sleep";
 
-export const metadata = { title: "Sleep & Recovery" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getI18n();
+  return { title: t.nav.sleep.title };
+}
 
 export default async function SleepPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
   const range = parseRange((await searchParams).range);
-  const result = await getSleepData(range);
+  const [result, { t, f }] = await Promise.all([getSleepData(range), getI18n()]);
+  const title = t.nav.sleep.title;
 
   if (!result.ok) {
     return (
       <>
-        <PageHeader title="Sleep & Recovery" />
+        <PageHeader title={title} />
         <DatabaseError message={result.error} />
       </>
     );
@@ -31,14 +35,11 @@ export default async function SleepPage({ searchParams }: { searchParams: Promis
   if (!result.data) {
     return (
       <>
-        <PageHeader title="Sleep & Recovery" />
-        <EmptyState icon={BedDouble} tile="bg-sleep" title="No sleep data yet">
-          <p>
-            After a night with your Apple Watch, you&apos;ll see your sleep stages, usual bedtime and wake time, and how
-            consistent your schedule is.
-          </p>
+        <PageHeader title={title} />
+        <EmptyState icon={BedDouble} tile="bg-sleep" title={t.sleep.emptyTitle}>
+          <p>{t.sleep.emptyBody}</p>
           <Link href="/upload" className="mt-3 inline-block font-medium text-primary">
-            Import an Apple Health export
+            {t.common.importExport}
           </Link>
         </EmptyState>
       </>
@@ -48,7 +49,7 @@ export default async function SleepPage({ searchParams }: { searchParams: Promis
   const data = result.data;
   return (
     <>
-      <PageHeader title="Sleep & Recovery" subtitle={`${formatChartDay(data.start, 30)} to ${formatChartDay(data.end, 30)}`} />
+      <PageHeader title={title} subtitle={t.common.dateRange(f.chartDay(data.start, 30), f.chartDay(data.end, 30))} />
       <div className="mb-6">
         <RangePicker value={range} basePath="/sleep" />
       </div>
@@ -57,52 +58,49 @@ export default async function SleepPage({ searchParams }: { searchParams: Promis
   );
 }
 
-const clock = (m: number): [string, string] => {
-  const [time, ampm] = clockLabel(m).split(" ");
-  return [time, ampm];
-};
-const minutes = (abs: number) => durationLabel(abs / 60);
-/** 7.43 → "7h 26m" */
-const compactDuration = (hours: number) => {
-  const total = Math.round(hours * 60);
-  return `${Math.floor(total / 60)}h ${total % 60}m`;
-};
-
-function SleepContent({ data }: { data: SleepData }) {
+async function SleepContent({ data }: { data: SleepData }) {
+  const { t, f } = await getI18n();
   const { trends, nights, calendar, lastNight, averages } = data;
-  const period = `${RANGES[data.range]} days`;
-  const spark = (f: (n: NonNullable<(typeof calendar)[number]["night"]>) => number | null) =>
-    calendar.map((c) => (c.night ? f(c.night) : null));
+  const period = t.common.rangeDays(RANGES[data.range]);
+  const spark = (pick: (n: NonNullable<(typeof calendar)[number]["night"]>) => number | null) =>
+    calendar.map((c) => (c.night ? pick(c.night) : null));
+  const minutes = (abs: number) => f.duration(abs / 60);
+  const points = (abs: number) => t.trend.points(abs.toFixed(0));
+  const shift = { up: t.sleep.later, down: t.sleep.earlier };
+  const stageName = (stage: string) => {
+    const s = [...STAGES, UNSPECIFIED].find((x) => x.stage === stage);
+    return t.stages[s?.key ?? "unspecified"];
+  };
 
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <TrendTile label="Sleep Score" icon={Sparkles} tint="sleep" unit="" trend={trends.score} spark={spark((n) => n.score)} periodLabel={period}
-          format={(v) => [v.toFixed(0), "/ 100"]} formatDelta={(abs) => `${abs.toFixed(0)} points`} />
-        <TrendTile label="Time Asleep" icon={BedDouble} tint="sleep" unit="" trend={trends.duration} spark={spark((n) => n.total)} periodLabel={period}
-          format={(v) => [compactDuration(v), ""]}
-          formatDelta={(abs) => durationLabel(abs)} />
-        <TrendTile label="Bedtime" icon={Moon} tint="sleep" unit="" trend={trends.bed} spark={spark((n) => n.bed)} periodLabel={period}
-          format={clock} formatDelta={minutes} directionLabels={{ up: "later", down: "earlier" }} />
-        <TrendTile label="Wake Time" icon={AlarmClock} tint="sleep" unit="" trend={trends.wake} spark={spark((n) => n.wake)} periodLabel={period}
-          format={clock} formatDelta={minutes} directionLabels={{ up: "later", down: "earlier" }} />
-        <TrendTile label="Consistency" icon={CalendarCheck} tint="sleep" unit="" trend={trends.consistency} spark={[]} periodLabel={period}
-          summary="Score" format={(v) => [v.toFixed(0), "/ 100"]} formatDelta={(abs) => `${abs.toFixed(0)} points`} />
+        <TrendTile label={t.sleep.score} icon={Sparkles} tint="sleep" unit="" trend={trends.score} spark={spark((n) => n.score)} periodLabel={period}
+          format={(v) => [v.toFixed(0), t.units.of100]} formatDelta={points} />
+        <TrendTile label={t.sleep.timeAsleep} icon={BedDouble} tint="sleep" unit="" trend={trends.duration} spark={spark((n) => n.total)} periodLabel={period}
+          format={(v) => [f.compactDuration(v), ""]}
+          formatDelta={(abs) => f.duration(abs)} />
+        <TrendTile label={t.sleep.bedtime} icon={Moon} tint="sleep" unit="" trend={trends.bed} spark={spark((n) => n.bed)} periodLabel={period}
+          format={f.clockParts} formatDelta={minutes} directionLabels={shift} />
+        <TrendTile label={t.sleep.wakeTime} icon={AlarmClock} tint="sleep" unit="" trend={trends.wake} spark={spark((n) => n.wake)} periodLabel={period}
+          format={f.clockParts} formatDelta={minutes} directionLabels={shift} />
+        <TrendTile label={t.sleep.consistency} icon={CalendarCheck} tint="sleep" unit="" trend={trends.consistency} spark={[]} periodLabel={period}
+          summary={t.trend.score} format={(v) => [v.toFixed(0), t.units.of100]} formatDelta={points} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <ChartCard
-          title={lastNight ? `Last night, ${formatChartDay(lastNight.night.day, 0, true)}` : "Last night"}
-          description={lastNight ? `${durationLabel(lastNight.night.total)} asleep. Hover or tab through the stages for times.` : undefined}
+          title={lastNight ? t.sleep.lastNightOn(f.chartDay(lastNight.night.day, 0, true)) : t.sleep.lastNight}
+          description={lastNight ? t.sleep.lastNightDesc(f.duration(lastNight.night.total)) : undefined}
           table={
             lastNight && lastNight.segments.length
               ? {
-                  columns: ["Stage", "From", "To", "Duration"],
+                  columns: [t.sleep.stage, t.sleep.from, t.sleep.to, t.common.duration],
                   rows: lastNight.segments.map((s) => [
-                    STAGES.find((x) => x.stage === s.stage)?.label ?? "Asleep",
-                    clockLabel(s.start),
-                    clockLabel(s.end),
-                    durationLabel((s.end - s.start) / 60),
+                    stageName(s.stage),
+                    f.clockLabel(s.start),
+                    f.clockLabel(s.end),
+                    f.duration((s.end - s.start) / 60),
                   ]),
                 }
               : undefined
@@ -114,27 +112,24 @@ function SleepContent({ data }: { data: SleepData }) {
               <StageMix mix={lastNight.night} />
             </>
           ) : (
-            <p className="text-[15px] text-muted-foreground">
-              Stage timing isn&apos;t available for this night. Apple Health exports and unaggregated Health Auto Export
-              data include it.
-            </p>
+            <p className="text-[15px] text-muted-foreground">{t.sleep.noStages}</p>
           )}
         </ChartCard>
 
         <ChartCard
-          title="Sleep schedule"
+          title={t.sleep.scheduleTitle}
           description={
             trends.bed.current !== null && trends.wake.current !== null
-              ? `Usually asleep by ${clockLabel(trends.bed.current)} and up at ${clockLabel(trends.wake.current)}. Lines mark those averages.`
-              : "When you fell asleep and woke up each night."
+              ? t.sleep.scheduleDesc(f.clockLabel(trends.bed.current), f.clockLabel(trends.wake.current))
+              : t.sleep.scheduleDescEmpty
           }
           table={{
-            columns: ["Night", "Asleep", "Woke", "Duration"],
+            columns: [t.common.night, t.sleep.asleepCol, t.sleep.wokeCol, t.common.duration],
             rows: [...nights].reverse().map((n) => [
-              formatChartDay(n.day, 0, true),
-              n.bed === null ? null : clockLabel(n.bed),
-              n.wake === null ? null : clockLabel(n.wake),
-              durationLabel(n.total),
+              f.chartDay(n.day, 0, true),
+              n.bed === null ? null : f.clockLabel(n.bed),
+              n.wake === null ? null : f.clockLabel(n.wake),
+              f.duration(n.total),
             ]),
           }}
         >
@@ -143,35 +138,32 @@ function SleepContent({ data }: { data: SleepData }) {
       </div>
 
       <ChartCard
-        title="Sleep stages by night"
-        description="Hours in each stage. Adults typically spend about 13–23% of sleep in deep and 20–25% in REM."
-        legend={STAGES.map((s) => ({ label: s.label, color: s.color, kind: "square" as const }))}
+        title={t.sleep.stagesTitle}
+        description={t.sleep.stagesDesc}
+        legend={STAGES.map((s) => ({ label: t.stages[s.key], color: s.color, kind: "square" as const }))}
         table={{
-          columns: ["Night", "Deep", "Core", "REM", "Awake", "Asleep"],
+          columns: [t.common.night, t.stages.deep, t.stages.core, t.stages.rem, t.stages.awake, t.stages.unspecified],
           rows: [...nights].reverse().map((n) => [
-            formatChartDay(n.day, 0, true),
-            durationLabel(n.deep),
-            durationLabel(n.core),
-            durationLabel(n.rem),
-            durationLabel(n.awake),
-            durationLabel(n.total),
+            f.chartDay(n.day, 0, true),
+            f.duration(n.deep),
+            f.duration(n.core),
+            f.duration(n.rem),
+            f.duration(n.awake),
+            f.duration(n.total),
           ]),
         }}
       >
         <StagesChart calendar={calendar} />
         {averages && (
           <div className="border-t border-border pt-4">
-            <p className="mb-3 text-[15px] font-semibold">Average night: {durationLabel(averages.total)} asleep</p>
+            <p className="mb-3 text-[15px] font-semibold">{t.sleep.averageNight(f.duration(averages.total))}</p>
             <StageMix mix={averages} />
           </div>
         )}
       </ChartCard>
 
       <p className="mt-3 max-w-3xl text-[13px] leading-[18px] text-muted-foreground">
-        Sleep score (0–100) weighs duration (50 points, full marks for 7–9 hours), deep and REM share (30 points, full
-        marks at 40% of sleep) and time awake (20 points, none at an hour awake). Consistency is 100 when you fall asleep
-        and wake at the same times every night, and drops to 0 as those times vary by two hours. This is not medical
-        advice.
+        {t.sleep.footnote} {t.common.notMedical}
       </p>
     </div>
   );

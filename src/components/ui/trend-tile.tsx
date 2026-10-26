@@ -1,5 +1,7 @@
 import { ArrowDownRight, ArrowUpRight, Minus, type LucideIcon } from "lucide-react";
 import type { Trend } from "@/lib/analytics/trend";
+import { getI18n } from "@/lib/i18n/server";
+import type { Messages } from "@/lib/i18n/messages";
 import { cn } from "@/lib/utils";
 import { Card, tintColor, type Tint } from "./card";
 
@@ -7,7 +9,7 @@ import { Card, tintColor, type Tint } from "./card";
  * Stat tile for a dashboard window: the period average, how it moved against
  * the previous period, a verdict badge, and a sparkline of the daily values.
  */
-export function TrendTile({
+export async function TrendTile({
   label,
   icon: Icon,
   tint,
@@ -20,7 +22,7 @@ export function TrendTile({
   format,
   formatDelta,
   directionLabels,
-  summary = "Average",
+  summary,
 }: {
   label: string;
   icon: LucideIcon;
@@ -43,6 +45,7 @@ export function TrendTile({
   /** How the headline value was derived, e.g. "Average" or "Score". */
   summary?: string;
 }) {
+  const { t } = await getI18n();
   const [value, valueUnit] = format ? format(trend.current ?? 0) : [(trend.current ?? 0).toFixed(digits), unit];
 
   return (
@@ -56,15 +59,22 @@ export function TrendTile({
       </div>
 
       {trend.current === null ? (
-        <p className="text-[17px] font-medium text-subtle-foreground">No readings in this period</p>
+        <p className="text-[17px] font-medium text-subtle-foreground">{t.trend.noReadings}</p>
       ) : (
         <div>
           <p className="font-rounded">
-            <span className="text-[34px] font-semibold leading-none tracking-tight">{value}</span>
-            {valueUnit && <span className="ml-1 text-[17px] font-semibold text-muted-foreground">{valueUnit}</span>}
+            <span className="text-[34px] font-semibold leading-none tracking-tight [unicode-bidi:isolate]">{value}</span>
+            {valueUnit && <span className="ms-1 text-[17px] font-semibold text-muted-foreground [unicode-bidi:isolate]">{valueUnit}</span>}
           </p>
           <p className="mt-1 text-[13px] text-muted-foreground">
-            {describeChange(trend, periodLabel, summary, formatDelta ?? ((abs) => `${abs.toFixed(Math.max(digits, abs < 1 ? 1 : 0))} ${unit}`), directionLabels)}
+            {describeChange(
+              t,
+              trend,
+              periodLabel,
+              summary ?? t.trend.average,
+              formatDelta ?? ((abs) => `${abs.toFixed(Math.max(digits, abs < 1 ? 1 : 0))} ${unit}`),
+              directionLabels,
+            )}
           </p>
         </div>
       )}
@@ -75,26 +85,23 @@ export function TrendTile({
 }
 
 function describeChange(
+  t: Messages,
   trend: Trend,
   periodLabel: string,
   summary: string,
   formatDelta: (abs: number) => string,
-  labels = { up: "higher", down: "lower" },
+  labels = { up: t.trend.higher, down: t.trend.lower },
 ) {
-  const lead = `${summary} over ${periodLabel}`;
-  if (trend.delta === null || trend.direction === null) return `${lead}. Not enough earlier data to compare.`;
-  if (trend.direction === "flat") return `${lead}, about the same as the ${periodLabel} before.`;
-  return `${lead}, ${formatDelta(Math.abs(trend.delta))} ${trend.direction === "up" ? labels.up : labels.down} than the ${periodLabel} before.`;
+  const lead = t.trend.lead(summary, periodLabel);
+  if (trend.delta === null || trend.direction === null) return t.trend.noCompare(lead);
+  if (trend.direction === "flat") return t.trend.flat(lead, periodLabel);
+  return t.trend.moved(lead, formatDelta(Math.abs(trend.delta)), trend.direction === "up" ? labels.up : labels.down, periodLabel);
 }
 
-const VERDICTS = {
-  improving: { label: "Improving", tone: "var(--good)" },
-  declining: { label: "Declining", tone: "var(--warning)" },
-  stable: { label: "Stable", tone: "var(--gray)" },
-} as const;
+const TONES = { improving: "var(--good)", declining: "var(--warning)", stable: "var(--gray)" } as const;
 
 /** Status always carries an icon and a word, never color alone. */
-export function TrendBadge({
+export async function TrendBadge({
   trend,
   directionLabels,
 }: {
@@ -102,17 +109,17 @@ export function TrendBadge({
   directionLabels?: { up: string; down: string };
 }) {
   if (trend.direction === null) return null;
+  const { t } = await getI18n();
   const Icon: LucideIcon = trend.direction === "up" ? ArrowUpRight : trend.direction === "down" ? ArrowDownRight : Minus;
-  const verdict = trend.verdict ? VERDICTS[trend.verdict] : null;
   // Neutral metrics (e.g. workout HR) report direction without judging it.
-  const words = directionLabels ?? { up: "higher", down: "lower" };
+  const words = directionLabels ?? { up: t.trend.higher, down: t.trend.lower };
   const word = trend.direction === "up" ? words.up : words.down;
-  const label = verdict?.label ?? word.charAt(0).toUpperCase() + word.slice(1);
-  const tone = verdict?.tone ?? "var(--gray)";
+  const label = trend.verdict ? t.trend[trend.verdict] : word.charAt(0).toUpperCase() + word.slice(1);
+  const tone = trend.verdict ? TONES[trend.verdict] : "var(--gray)";
 
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-1 rounded-full py-0.5 pl-1.5 pr-2 text-[12px] font-semibold text-foreground"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full py-0.5 ps-1.5 pe-2 text-[12px] font-semibold text-foreground"
       style={{ background: `color-mix(in srgb, ${tone} 16%, transparent)` }}
     >
       <Icon aria-hidden className="size-3.5" strokeWidth={2.75} style={{ color: tone }} />

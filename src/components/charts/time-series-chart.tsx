@@ -1,7 +1,7 @@
 "use client";
 
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { formatChartDay } from "./format";
+import { useI18n } from "@/lib/i18n/client";
 import { TooltipBox, TooltipRow } from "./tooltip";
 
 export interface Series {
@@ -53,18 +53,19 @@ export function TimeSeriesChart({
   days: number;
   height?: number;
 }) {
+  const { f } = useI18n();
   const values = data.flatMap((row) => series.map((s) => row[s.key])).filter((v): v is number => typeof v === "number");
   const ticks = values.length ? niceTicks(Math.min(...values), Math.max(...values)) : undefined;
   const decimals = ticks && ticks.length > 1 && ticks[1] - ticks[0] < 1 ? 1 : 0;
 
   return (
-    <div style={{ height }} className="-ml-2 [&_.recharts-surface]:overflow-visible">
+    <div style={{ height }} dir="ltr" className="-ml-2 [&_.recharts-surface]:overflow-visible">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--border)" />
           <XAxis
             dataKey="day"
-            tickFormatter={(d: string) => formatChartDay(d, days)}
+            tickFormatter={(d: string) => f.chartDay(d, days)}
             tick={AXIS_TICK}
             axisLine={false}
             tickLine={false}
@@ -141,8 +142,9 @@ export function TimeSeriesChart({
 
 /** One readout for every series at the hovered day: value first, series name second. */
 function ChartTooltip({ day, unit, series, row }: { day: string; unit: string; series: Series[]; row: Row }) {
+  const { f } = useI18n();
   return (
-    <TooltipBox title={formatChartDay(day, 0, true)}>
+    <TooltipBox title={f.chartDay(day, 0, true)}>
       {series.map((s) => {
         const v = row[s.key];
         return (

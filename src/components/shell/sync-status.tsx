@@ -1,10 +1,10 @@
-import { formatAgo } from "@/lib/format";
+import { getI18n } from "@/lib/i18n/server";
 import { getLastSync } from "@/lib/queries/summary";
 import { cn } from "@/lib/utils";
 
 /** "Synced 5 minutes ago" line for the sidebar footer. */
 export async function SyncStatus() {
-  const last = await getLastSync();
+  const [last, { t, f }] = await Promise.all([getLastSync(), getI18n()]);
   if (last === undefined) return null;
 
   const failed = last?.failed ?? false;
@@ -14,11 +14,7 @@ export async function SyncStatus() {
         aria-hidden
         className={cn("size-2 rounded-full", !last ? "bg-subtle-foreground" : failed ? "bg-destructive" : "bg-workout")}
       />
-      {!last
-        ? "No data yet"
-        : failed
-          ? `Last update failed ${formatAgo(last.at)}`
-          : `Updated ${formatAgo(last.at)}`}
+      {!last ? t.shell.noData : failed ? t.shell.updateFailed(f.ago(last.at)) : t.shell.updated(f.ago(last.at))}
     </p>
   );
 }

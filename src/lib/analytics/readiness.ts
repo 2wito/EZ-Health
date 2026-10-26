@@ -13,19 +13,26 @@ export interface ReadinessInput {
 
 export type ReadinessLevel = "push" | "normal" | "recover";
 
+/** A plain-language reason: English `text` for the coach briefing, plus the numbers so the UI can word it in any language. */
+export type ReadinessNote = { text: string; tone: "good" | "neutral" | "bad" } & (
+  | { kind: "hrv"; pct: number }
+  | { kind: "rhr"; diff: number }
+  | { kind: "sleep"; h: number; m: number }
+);
+
 export interface Readiness {
   score: number;
   level: ReadinessLevel;
   label: string;
   /** Plain-language reasons, worst first. */
-  notes: { text: string; tone: "good" | "neutral" | "bad" }[];
+  notes: ReadinessNote[];
 }
 
 const lerp = (x: number, x0: number, x1: number, y0: number, y1: number) =>
   y0 + (Math.min(Math.max(x, Math.min(x0, x1)), Math.max(x0, x1)) - x0) * ((y1 - y0) / (x1 - x0));
 
 export function computeReadiness({ hrv, rhr, sleepHours }: ReadinessInput): Readiness | null {
-  const parts: { points: number; max: number; note: Readiness["notes"][number]; severity: number }[] = [];
+  const parts: { points: number; max: number; note: ReadinessNote; severity: number }[] = [];
 
   if (hrv && hrv.baseline > 0) {
     const ratio = hrv.latest / hrv.baseline;
@@ -35,6 +42,8 @@ export function computeReadiness({ hrv, rhr, sleepHours }: ReadinessInput): Read
       max: 35,
       severity: -pct,
       note: {
+        kind: "hrv",
+        pct,
         text: Math.abs(pct) < 5 ? "HRV is in your normal range" : `HRV is ${Math.abs(pct)}% ${pct < 0 ? "below" : "above"} your 30-day average`,
         tone: pct <= -10 ? "bad" : pct >= 5 ? "good" : "neutral",
       },
@@ -47,6 +56,8 @@ export function computeReadiness({ hrv, rhr, sleepHours }: ReadinessInput): Read
       max: 30,
       severity: diff * 3,
       note: {
+        kind: "rhr",
+        diff,
         text: Math.abs(diff) < 2 ? "Resting heart rate is at your baseline" : `Resting heart rate is ${Math.abs(diff)} bpm ${diff > 0 ? "above" : "below"} your baseline`,
         tone: diff >= 3 ? "bad" : diff <= -2 ? "good" : "neutral",
       },
@@ -61,6 +72,9 @@ export function computeReadiness({ hrv, rhr, sleepHours }: ReadinessInput): Read
       max: 35,
       severity: (7.5 - sleepHours) * 10,
       note: {
+        kind: "sleep",
+        h,
+        m,
         text: `You slept ${h}h ${m}m last night`,
         tone: sleepHours < 6.5 ? "bad" : sleepHours >= 7.5 ? "good" : "neutral",
       },

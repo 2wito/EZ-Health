@@ -5,22 +5,27 @@ import { DemoNotice } from "@/components/upload/demo-notice";
 import { Uploader } from "@/components/upload/uploader";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { isActiveImport, type ImportJobView } from "@/lib/apple-health/job-view";
-import { formatAgo, formatBytes, formatCompact, formatNumber } from "@/lib/format";
+import type { Metadata } from "next";
+import { getI18n } from "@/lib/i18n/server";
 import { hasDemoData } from "@/lib/demo/demo-data";
 import { getActiveImport, getRecentImports } from "@/lib/queries/imports";
 import { cn } from "@/lib/utils";
 
-export const metadata = { title: "Import Health Data" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getI18n();
+  return { title: t.nav.upload.title };
+}
 
 export default async function UploadPage() {
   await connection();
+  const { t } = await getI18n();
   const [active, recent, demo] = await Promise.all([getActiveImport(), getRecentImports(), hasDemoData()]).catch(
     () => [null, [] as ImportJobView[], false] as const,
   );
 
   return (
     <>
-      <PageHeader title="Import Health Data" />
+      <PageHeader title={t.nav.upload.title} />
       {demo && (
         <div className="mb-6">
           <DemoNotice />
@@ -31,13 +36,9 @@ export default async function UploadPage() {
         <Uploader activeJob={active} />
 
         <Card className="h-fit">
-          <h2 className="text-[17px] font-semibold">Export from your iPhone</h2>
+          <h2 className="text-[17px] font-semibold">{t.upload.exportTitle}</h2>
           <ol className="mt-3 space-y-3 text-[15px] leading-[21px]">
-            {[
-              "Open the Health app.",
-              "Tap your profile picture, then Export All Health Data.",
-              "Save or AirDrop export.zip to this computer, then drop it here.",
-            ].map((step, i) => (
+            {t.upload.exportSteps.map((step, i) => (
               <li key={step} className="flex gap-3">
                 <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-[13px] font-semibold">
                   {i + 1}
@@ -46,16 +47,13 @@ export default async function UploadPage() {
               </li>
             ))}
           </ol>
-          <p className="mt-4 text-[13px] leading-[18px] text-muted-foreground">
-            Exports with years of history can be several gigabytes. They&apos;re read in pieces, so size isn&apos;t a
-            problem, but the first import can take a few minutes.
-          </p>
+          <p className="mt-4 text-[13px] leading-[18px] text-muted-foreground">{t.upload.exportNote}</p>
         </Card>
       </div>
 
       {recent.length > 0 && (
         <>
-          <SectionTitle>Recent imports</SectionTitle>
+          <SectionTitle>{t.upload.recent}</SectionTitle>
           <Card className="divide-y divide-border p-0">
             {recent.map((job) => (
               <ImportRow key={job.id} job={job} />
@@ -67,7 +65,8 @@ export default async function UploadPage() {
   );
 }
 
-function ImportRow({ job }: { job: ImportJobView }) {
+async function ImportRow({ job }: { job: ImportJobView }) {
+  const { t, f } = await getI18n();
   const running = isActiveImport(job.status);
   const failed = job.status === "FAILED";
   const Icon = running ? LoaderCircle : failed ? CircleAlert : Check;
@@ -85,15 +84,15 @@ function ImportRow({ job }: { job: ImportJobView }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-[17px]">{job.fileName}</p>
         <p className="truncate text-[13px] text-muted-foreground">
-          {running ? "Importing now" : failed ? (job.error ?? "Failed") : `Imported ${formatAgo(new Date(job.createdAt))}`}
-          {job.fileBytes > 0 && `, ${formatBytes(job.fileBytes)}`}
+          {running ? t.upload.importingNow : failed ? (job.error ?? t.upload.failed) : t.upload.imported(f.ago(new Date(job.createdAt)))}
+          {job.fileBytes > 0 && `, ${f.bytes(job.fileBytes)}`}
         </p>
       </div>
       {job.status === "DONE" && (
-        <p className="hidden shrink-0 text-right text-[13px] text-muted-foreground sm:block">
-          {formatCompact(job.recordsRead)} records
+        <p className="hidden shrink-0 text-end text-[13px] text-muted-foreground sm:block">
+          {t.upload.records(f.compact(job.recordsRead))}
           <br />
-          {formatNumber(job.workoutsSaved)} workouts
+          {t.upload.workouts(f.number(job.workoutsSaved))}
         </p>
       )}
     </div>

@@ -2,10 +2,8 @@ import { BedDouble, FileUp, Flame, Heart, LayoutGrid, Sparkles, type LucideIcon 
 
 export interface NavItem {
   href: string;
-  /** Short label for the tab bar / sidebar. */
-  label: string;
-  /** Large page title. */
-  title: string;
+  /** Key into `t.nav` for the short label and the large page title. */
+  key: "summary" | "heart" | "sleep" | "activity" | "coach" | "upload";
   icon: LucideIcon;
   /** Tailwind background class for the iOS-style icon tile. */
   tile: string;
@@ -14,12 +12,12 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "Summary", title: "Summary", icon: LayoutGrid, tile: "bg-primary", tab: true },
-  { href: "/heart", label: "Heart", title: "Heart & Breathing", icon: Heart, tile: "bg-heart", tab: true },
-  { href: "/sleep", label: "Sleep", title: "Sleep & Recovery", icon: BedDouble, tile: "bg-sleep", tab: true },
-  { href: "/activity", label: "Activity", title: "Workouts & Trends", icon: Flame, tile: "bg-activity", tab: true },
-  { href: "/coach", label: "Coach", title: "AI Coach", icon: Sparkles, tile: "bg-spectrum", tab: true },
-  { href: "/upload", label: "Import", title: "Import Health Data", icon: FileUp, tile: "bg-gray", tab: false },
+  { href: "/", key: "summary", icon: LayoutGrid, tile: "bg-primary", tab: true },
+  { href: "/heart", key: "heart", icon: Heart, tile: "bg-heart", tab: true },
+  { href: "/sleep", key: "sleep", icon: BedDouble, tile: "bg-sleep", tab: true },
+  { href: "/activity", key: "activity", icon: Flame, tile: "bg-activity", tab: true },
+  { href: "/coach", key: "coach", icon: Sparkles, tile: "bg-spectrum", tab: true },
+  { href: "/upload", key: "upload", icon: FileUp, tile: "bg-gray", tab: false },
 ];
 
 export function isActive(pathname: string, href: string) {

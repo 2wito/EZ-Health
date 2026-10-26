@@ -1,16 +1,16 @@
 import Link from "next/link";
 import { RANGES, type RangeKey } from "@/lib/analytics/range";
+import { getI18n } from "@/lib/i18n/server";
 import { cn } from "@/lib/utils";
-
-const LABELS: Record<RangeKey, string> = { "7d": "7 days", "30d": "30 days", "90d": "90 days" };
 
 /**
  * iOS segmented control for the dashboard window. It's a set of links, so the
  * choice lives in the URL and every chart on the page re-renders against it.
  */
-export function RangePicker({ value, basePath }: { value: RangeKey; basePath: string }) {
+export async function RangePicker({ value, basePath }: { value: RangeKey; basePath: string }) {
+  const { t } = await getI18n();
   return (
-    <nav aria-label="Time range" className="inline-grid grid-cols-3 rounded-[9px] bg-muted p-0.5">
+    <nav aria-label={t.common.range} className="inline-grid grid-cols-3 rounded-[9px] bg-muted p-0.5">
       {(Object.keys(RANGES) as RangeKey[]).map((key) => {
         const selected = key === value;
         return (
@@ -26,7 +26,7 @@ export function RangePicker({ value, basePath }: { value: RangeKey; basePath: st
                 : "text-foreground/80 hover:text-foreground",
             )}
           >
-            {LABELS[key]}
+            {t.common.rangeDays(RANGES[key])}
           </Link>
         );
       })}

@@ -4,7 +4,7 @@ import { addDays, isoDay } from "@/lib/analytics/range";
 import { computeReadiness, type Readiness } from "@/lib/analytics/readiness";
 import { clockLabel, durationLabel, minutesSinceNoon } from "@/lib/analytics/sleep";
 import { mean } from "@/lib/analytics/trend";
-import { formatChartDay } from "@/components/charts/format";
+import { createFormat } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 import { getEvaluation, type Evaluation } from "@/lib/queries/evaluation";
 
@@ -133,7 +133,8 @@ export async function getCoachSnapshot(): Promise<CoachSnapshot | null> {
   };
 }
 
-const day = (iso: string) => formatChartDay(iso, 0, true);
+// The briefing is always English; the model is told which language to answer in.
+const day = (iso: string) => createFormat("en").chartDay(iso, 0, true);
 const r0 = (v: number | null) => (v === null ? "n/a" : String(Math.round(v)));
 
 /** Compact markdown briefing handed to the model as part of its instructions. */

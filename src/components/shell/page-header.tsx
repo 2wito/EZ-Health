@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { LanguageToggleButton } from "./language-switcher";
 import { ThemeToggleButton } from "./theme-switcher";
 
 /**
@@ -49,8 +50,11 @@ export function PageHeader({
         >
           {title}
         </span>
-        {/* Phones have no sidebar, so the appearance control lives here. */}
-        <ThemeToggleButton className="absolute right-4 sm:right-6 lg:hidden" />
+        {/* Phones have no sidebar, so the appearance and language controls live here. */}
+        <div className="absolute end-4 flex items-center gap-2 sm:end-6 lg:hidden">
+          <LanguageToggleButton />
+          <ThemeToggleButton />
+        </div>
       </div>
 
       <header className="flex items-end justify-between gap-4 pb-6 pt-1">

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { isActiveImport, type ImportJobView } from "@/lib/apple-health/job-view";
-import { formatBytes, formatCompact, formatNumber } from "@/lib/format";
+import { useI18n } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 type State =
@@ -18,6 +18,7 @@ const POLL_MS = 1000;
 
 export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
   const router = useRouter();
+  const { t, f } = useI18n();
   const [state, setState] = useState<State>(activeJob ? { kind: "job", job: activeJob } : { kind: "idle" });
   const xhr = useRef<XMLHttpRequest | null>(null);
 
@@ -41,7 +42,7 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
 
   function upload(file: File) {
     if (!/\.(zip|xml)$/i.test(file.name)) {
-      setState({ kind: "idle", error: `${file.name} isn't an Apple Health export. Choose export.zip or export.xml.` });
+      setState({ kind: "idle", error: t.upload.notExport(file.name) });
       return;
     }
 
@@ -59,10 +60,10 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
         body = JSON.parse(req.responseText);
       } catch {}
       if (req.status === 202 && body.jobId) void fetchJob(body.jobId);
-      else setState({ kind: "idle", error: body.error ?? `Upload failed (HTTP ${req.status}). Try again.` });
+      else setState({ kind: "idle", error: body.error ?? t.upload.httpFailed(req.status) });
     };
     req.onerror = () =>
-      setState({ kind: "idle", error: "Couldn't reach the server. Check that the app is running, then try again." });
+      setState({ kind: "idle", error: t.upload.unreachable });
     req.onabort = () => setState({ kind: "idle" });
     req.send(file);
     setState({ kind: "uploading", fileName: file.name, loaded: 0, total: file.size });
@@ -76,12 +77,12 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
         fileName={state.fileName}
         fileBytes={state.total}
         step={0}
-        label="Uploading"
+        label={t.upload.uploading}
         progress={state.total ? state.loaded / state.total : null}
-        detail={`${formatBytes(state.loaded)} of ${formatBytes(state.total)}`}
+        detail={t.upload.progressOf(f.bytes(state.loaded), f.bytes(state.total))}
         action={
           <button type="button" onClick={() => xhr.current?.abort()} className="text-[15px] font-medium text-primary">
-            Cancel
+            {t.upload.cancel}
           </button>
         }
       />
@@ -98,10 +99,10 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
             <CircleAlert aria-hidden className="size-6" strokeWidth={2.25} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[20px] font-semibold">Import failed</h2>
+            <h2 className="text-[20px] font-semibold">{t.upload.importFailed}</h2>
             <p className="mt-1 break-words text-[15px] leading-[22px] text-muted-foreground">{job.error}</p>
             <button type="button" onClick={() => setState({ kind: "idle" })} className={cn(buttonClass, "mt-5")}>
-              Try again
+              {t.upload.tryAgain}
             </button>
           </div>
         </div>
@@ -115,12 +116,12 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
       fileName={job.fileName}
       fileBytes={job.fileBytes}
       step={job.status === "SAVING" ? 2 : 1}
-      label={job.status === "SAVING" ? "Saving to your dashboard" : "Reading your health records"}
+      label={job.status === "SAVING" ? t.upload.saving : t.upload.reading}
       progress={reading && job.bytesTotal ? job.bytesRead / job.bytesTotal : null}
       detail={
         job.status === "QUEUED"
-          ? "Opening the file"
-          : `${formatNumber(job.recordsRead)} records read${job.status === "SAVING" ? ", saving now" : ""}`
+          ? t.upload.opening
+          : t.upload.recordsRead(f.number(job.recordsRead), job.status === "SAVING")
       }
     />
   );
@@ -132,6 +133,7 @@ const secondaryButtonClass =
   "inline-flex h-11 items-center justify-center rounded-xl bg-muted px-5 text-[17px] font-semibold text-primary transition-opacity active:opacity-80";
 
 function DropZone({ onFile, error }: { onFile: (file: File) => void; error?: string }) {
+  const { t } = useI18n();
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -162,13 +164,13 @@ function DropZone({ onFile, error }: { onFile: (file: File) => void; error?: str
         <FileUp aria-hidden className="size-8" strokeWidth={2} />
       </span>
       <h2 className="mt-5 text-[22px] font-semibold tracking-tight">
-        {dragging ? "Drop to import" : "Drop your Apple Health export here"}
+        {dragging ? t.upload.dropping : t.upload.drop}
       </h2>
       <p className="mt-1.5 max-w-sm text-[15px] leading-[22px] text-muted-foreground">
-        export.zip or export.xml. Importing the same file again updates your data instead of duplicating it.
+        {t.upload.dropHint}
       </p>
       <button type="button" onClick={() => input.current?.click()} className={cn(buttonClass, "mt-6")}>
-        Choose File
+        {t.upload.choose}
       </button>
       <input
         ref={input}
@@ -183,7 +185,7 @@ function DropZone({ onFile, error }: { onFile: (file: File) => void; error?: str
         }}
       />
       {error && (
-        <p role="alert" className="mt-5 flex items-start gap-2 text-left text-[15px] text-destructive">
+        <p role="alert" className="mt-5 flex items-start gap-2 text-start text-[15px] text-destructive">
           <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
           {error}
         </p>
@@ -192,7 +194,6 @@ function DropZone({ onFile, error }: { onFile: (file: File) => void; error?: str
   );
 }
 
-const STEPS = ["Upload", "Read", "Save"];
 
 function ProgressCard({
   fileName,
@@ -212,6 +213,8 @@ function ProgressCard({
   detail: string;
   action?: React.ReactNode;
 }) {
+  const { t, f } = useI18n();
+  const steps = t.upload.steps;
   return (
     <Card className="p-6">
       <div className="flex items-center gap-4">
@@ -220,13 +223,13 @@ function ProgressCard({
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[17px] font-semibold">{fileName}</p>
-          {fileBytes > 0 && <p className="text-[15px] text-muted-foreground">{formatBytes(fileBytes)}</p>}
+          {fileBytes > 0 && <p className="text-[15px] text-muted-foreground">{f.bytes(fileBytes)}</p>}
         </div>
         {action}
       </div>
 
-      <ol className="mt-6 flex items-center gap-2" aria-label="Import progress">
-        {STEPS.map((name, i) => {
+      <ol className="mt-6 flex items-center gap-2" aria-label={t.upload.progress}>
+        {steps.map((name, i) => {
           const done = i < step;
           const current = i === step;
           return (
@@ -248,7 +251,7 @@ function ProgressCard({
                 </span>
                 {name}
               </span>
-              {i < STEPS.length - 1 && <span className={cn("h-px flex-1", done ? "bg-workout" : "bg-border")} />}
+              {i < steps.length - 1 && <span className={cn("h-px flex-1", done ? "bg-workout" : "bg-border")} />}
             </li>
           );
         })}
@@ -282,12 +285,12 @@ function ProgressCard({
 }
 
 function DoneCard({ job, onReset }: { job: ImportJobView; onReset: () => void }) {
-  const month = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  const { t, f } = useI18n();
   const stats: [string, string][] = [
-    ["Records read", formatCompact(job.recordsRead)],
-    ["Workouts", formatNumber(job.workoutsSaved)],
-    ["Nights of sleep", formatNumber(job.sleepNights)],
-    ["Activity days", formatNumber(job.activityDays)],
+    [t.upload.statRecords, f.compact(job.recordsRead)],
+    [t.upload.statWorkouts, f.number(job.workoutsSaved)],
+    [t.upload.statNights, f.number(job.sleepNights)],
+    [t.upload.statDays, f.number(job.activityDays)],
   ];
 
   return (
@@ -297,11 +300,11 @@ function DoneCard({ job, onReset }: { job: ImportJobView; onReset: () => void })
           <Check aria-hidden className="size-6" strokeWidth={3} />
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-[20px] font-semibold">Import complete</h2>
+          <h2 className="text-[20px] font-semibold">{t.upload.complete}</h2>
           <p className="mt-0.5 text-[15px] text-muted-foreground">
             {job.dataFrom && job.dataTo
-              ? `${job.fileName} covers ${month(job.dataFrom)} to ${month(job.dataTo)}.`
-              : `${job.fileName} was imported.`}
+              ? t.upload.covers(job.fileName, f.monthYear(job.dataFrom), f.monthYear(job.dataTo))
+              : t.upload.wasImported(job.fileName)}
           </p>
         </div>
       </div>
@@ -317,16 +320,16 @@ function DoneCard({ job, onReset }: { job: ImportJobView; onReset: () => void })
 
       {job.parseWarnings > 0 && (
         <p className="mt-4 text-[13px] text-muted-foreground">
-          {formatNumber(job.parseWarnings)} records couldn&apos;t be read and were skipped.
+          {t.upload.skipped(f.number(job.parseWarnings))}
         </p>
       )}
 
       <div className="mt-6 flex flex-wrap gap-3">
         <Link href="/" className={buttonClass}>
-          View Summary
+          {t.upload.viewSummary}
         </Link>
         <button type="button" onClick={onReset} className={secondaryButtonClass}>
-          Import Another File
+          {t.upload.another}
         </button>
       </div>
     </Card>

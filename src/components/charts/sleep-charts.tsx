@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { clockLabel, durationLabel } from "@/lib/analytics/sleep";
+import { useI18n } from "@/lib/i18n/client";
 import type { SleepNight, StageSegment } from "@/lib/queries/sleep";
-import { formatChartDay } from "./format";
 import { STAGES, UNSPECIFIED } from "./stages";
 import { niceTicks } from "./time-series-chart";
 import { TooltipBox, TooltipRow } from "./tooltip";
@@ -17,6 +16,7 @@ const ROW_H = 36;
 
 /** Last night's stages over time, one row per stage, like the Health app. */
 export function Hypnogram({ segments }: { segments: StageSegment[] }) {
+  const { t, f } = useI18n();
   const [active, setActive] = useState<number | null>(null);
   const hasUnspecified = segments.some((s) => s.stage === "ASLEEP");
   const rows = hasUnspecified ? [...STAGES, UNSPECIFIED] : STAGES;
@@ -39,19 +39,20 @@ export function Hypnogram({ segments }: { segments: StageSegment[] }) {
       <p className="mb-3 h-5 text-[13px] text-muted-foreground" aria-live="polite">
         {focus ? (
           <>
-            <span className="font-semibold text-foreground">{rows[rowOf(focus.stage)]?.label}</span>{" "}
-            {clockLabel(focus.start)} to {clockLabel(focus.end)}, {durationLabel((focus.end - focus.start) / 60)}
+            <span className="font-semibold text-foreground">{t.stages[rows[rowOf(focus.stage)].key]}</span>{" "}
+            {t.sleep.span(f.clockLabel(focus.start), f.clockLabel(focus.end))}, {f.duration((focus.end - focus.start) / 60)}
           </>
         ) : (
-          `${clockLabel(start)} to ${clockLabel(end)}`
+          t.sleep.span(f.clockLabel(start), f.clockLabel(end))
         )}
       </p>
 
-      <div className="grid grid-cols-[52px_minmax(0,1fr)]">
+      {/* Time runs left to right in every language, like the other charts. */}
+      <div dir="ltr" className="grid grid-cols-[52px_minmax(0,1fr)]">
         <div>
           {rows.map((r) => (
             <div key={r.stage} className="flex items-center text-[12px] text-muted-foreground" style={{ height: ROW_H }}>
-              {r.label}
+              {t.stages[r.key]}
             </div>
           ))}
         </div>
@@ -81,7 +82,7 @@ export function Hypnogram({ segments }: { segments: StageSegment[] }) {
               <button
                 key={i}
                 type="button"
-                aria-label={`${row.label}, ${clockLabel(s.start)} to ${clockLabel(s.end)}`}
+                aria-label={`${t.stages[row.key]}, ${t.sleep.span(f.clockLabel(s.start), f.clockLabel(s.end))}`}
                 onPointerEnter={() => setActive(i)}
                 onFocus={() => setActive(i)}
                 onBlur={() => setActive(null)}
@@ -103,7 +104,7 @@ export function Hypnogram({ segments }: { segments: StageSegment[] }) {
         <div className="relative mt-2 h-4 text-[12px] text-muted-foreground">
           {ticks.map((t) => (
             <span key={t} className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: x(t) }}>
-              {clockLabel(t).replace(":00", "")}
+              {f.clockTick(t)}
             </span>
           ))}
         </div>
@@ -128,6 +129,7 @@ export function ScheduleChart({
   avgWake: number | null;
   height?: number;
 }) {
+  const { t, f } = useI18n();
   const data = calendar.map(({ day, night }) => ({
     day,
     night,
@@ -141,13 +143,13 @@ export function ScheduleChart({
   for (let t = lo; t <= hi; t += hi - lo > 8 * 60 ? 120 : 60) ticks.push(t);
 
   return (
-    <div style={{ height }} className="-ml-2">
+    <div style={{ height }} dir="ltr" className="-ml-2">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 14, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--border)" />
           <XAxis
             dataKey="day"
-            tickFormatter={(d: string) => formatChartDay(d, calendar.length)}
+            tickFormatter={(d: string) => f.chartDay(d, calendar.length)}
             tick={AXIS_TICK}
             axisLine={false}
             tickLine={false}
@@ -160,7 +162,7 @@ export function ScheduleChart({
             width={56}
             domain={[lo, hi]}
             ticks={ticks}
-            tickFormatter={(m: number) => clockLabel(m).replace(":00", "")}
+            tickFormatter={(m: number) => f.clockTick(m)}
             tick={AXIS_TICK}
             axisLine={false}
             tickLine={false}
@@ -172,9 +174,9 @@ export function ScheduleChart({
               const row = payload?.[0]?.payload as (typeof data)[number] | undefined;
               if (!active || !row?.night || !row.range) return null;
               return (
-                <TooltipBox title={formatChartDay(row.day, 0, true)}>
-                  <TooltipRow color="var(--sleep)" mark="square" value={`${clockLabel(row.range[0])} to ${clockLabel(row.range[1])}`} label="" />
-                  <p className="mt-0.5 text-muted-foreground">{durationLabel(row.night.total)} asleep</p>
+                <TooltipBox title={f.chartDay(row.day, 0, true)}>
+                  <TooltipRow color="var(--sleep)" mark="square" value={t.sleep.span(f.clockLabel(row.range[0]), f.clockLabel(row.range[1]))} label="" />
+                  <p className="mt-0.5 text-muted-foreground">{t.sleep.asleep(f.duration(row.night.total))}</p>
                 </TooltipBox>
               );
             }}
@@ -196,6 +198,7 @@ export function StagesChart({ calendar, height = 240 }: { calendar: CalendarRow[
   const showUnspecified = calendar.some((c) => (c.night?.unspecified ?? 0) > 0);
   // Bottom-up stacking: deepest stage on the baseline.
   const series = [...(showUnspecified ? [UNSPECIFIED] : []), ...[...STAGES].reverse()];
+  const { t, f } = useI18n();
   const data = calendar.map(({ day, night }) => ({
     day,
     night,
@@ -209,13 +212,13 @@ export function StagesChart({ calendar, height = 240 }: { calendar: CalendarRow[
   const ticks = niceTicks(0, max);
 
   return (
-    <div style={{ height }} className="-ml-2">
+    <div style={{ height }} dir="ltr" className="-ml-2">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--border)" />
           <XAxis
             dataKey="day"
-            tickFormatter={(d: string) => formatChartDay(d, calendar.length)}
+            tickFormatter={(d: string) => f.chartDay(d, calendar.length)}
             tick={AXIS_TICK}
             axisLine={false}
             tickLine={false}
@@ -227,7 +230,7 @@ export function StagesChart({ calendar, height = 240 }: { calendar: CalendarRow[
             width={40}
             domain={[0, ticks[ticks.length - 1]]}
             ticks={ticks}
-            tickFormatter={(h: number) => `${h}h`}
+            tickFormatter={(h: number) => t.units.hourTick(h)}
             tick={AXIS_TICK}
             axisLine={false}
             tickLine={false}
@@ -240,11 +243,11 @@ export function StagesChart({ calendar, height = 240 }: { calendar: CalendarRow[
               if (!active || !row?.night) return null;
               const n = row.night;
               return (
-                <TooltipBox title={formatChartDay(row.day, 0, true)}>
+                <TooltipBox title={f.chartDay(row.day, 0, true)}>
                   {[...STAGES, ...(showUnspecified ? [UNSPECIFIED] : [])].map((s) => (
-                    <TooltipRow key={s.key} color={s.color} mark="square" value={durationLabel(n[s.key])} label={s.label} />
+                    <TooltipRow key={s.key} color={s.color} mark="square" value={f.duration(n[s.key])} label={t.stages[s.key]} />
                   ))}
-                  <p className="mt-0.5 text-muted-foreground">{durationLabel(n.total)} asleep</p>
+                  <p className="mt-0.5 text-muted-foreground">{t.sleep.asleep(f.duration(n.total))}</p>
                 </TooltipBox>
               );
             }}
@@ -253,7 +256,7 @@ export function StagesChart({ calendar, height = 240 }: { calendar: CalendarRow[
             <Bar
               key={s.key}
               dataKey={s.key}
-              name={s.label}
+              name={t.stages[s.key]}
               stackId="night"
               fill={s.color}
               stroke="var(--card)"
