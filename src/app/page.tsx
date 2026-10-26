@@ -1,4 +1,4 @@
-import { Activity, BedDouble, Dumbbell, Flame, Heart, MoonStar, Wind } from "lucide-react";
+import { Activity, BedDouble, Dumbbell, Flame, Footprints, Heart, MoonStar, Wind } from "lucide-react";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { PageHeader } from "@/components/shell/page-header";
@@ -35,7 +35,7 @@ export default async function SummaryPage() {
 
 async function SummaryContent({ data }: { data: Summary }) {
   const { t, f } = await getI18n();
-  const { readiness, readinessDay, restingHr, hrv, breathing, activeEnergy, sleep, workout } = data;
+  const { readiness, readinessDay, restingHr, hrv, breathing, activeEnergy, steps, sleep, workout } = data;
   const score = sleep
     ? sleepScore({ total: sleep.totalSleep, deep: sleep.deepHours, rem: sleep.remHours, awake: sleep.awakeHours })
     : null;
@@ -114,6 +114,14 @@ async function SummaryContent({ data }: { data: Summary }) {
           href="/activity"
           measure={activeEnergy ? [[f.number(activeEnergy.kcal), t.units.kcal]] : null}
           caption={activeEnergy ? f.day(activeEnergy.localDate, activeEnergy.tzOffsetMin) : undefined}
+        />
+        <MetricTile
+          label={t.summary.steps}
+          icon={Footprints}
+          tint="activity"
+          href="/activity"
+          measure={steps ? [[f.number(steps.count), t.units.steps]] : null}
+          caption={steps ? f.day(steps.localDate, steps.tzOffsetMin) : undefined}
         />
         <MetricTile
           label={t.summary.workout}

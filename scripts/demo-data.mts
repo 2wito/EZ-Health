@@ -69,6 +69,15 @@ const rand = () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 const between = (a: number, b: number) => a + rand() * (b - a);
+// Steps draw from their own sequence, so adding them left every other demo value
+// unchanged (re-importing over an older demo must not shift the sleep segments).
+const stepSeq = (() => {
+  let s = 77_001;
+  return () => {
+    s = (Math.imul(s, 1_103_515_245) + 12_345) >>> 0;
+    return s / 4_294_967_296;
+  };
+})();
 const noise = (spread: number) => (rand() + rand() + rand() - 1.5) * (spread / 1.5);
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -182,6 +191,15 @@ async function writeExport(file: string) {
         : peak(8.3, 0.6, 10) + peak(12.6, 0.5, 7) + peak(17.8, 0.8, 6);
       const kcal = inWorkout ? (workout!.kind === "run" ? 105 : 62) : Math.max(0.3, rhythm + 1.4 + noise(1.5));
       await record("HKQuantityTypeIdentifierActiveEnergyBurned", "kcal", at, at + 10 * MIN, kcal.toFixed(2));
+
+      // Steps from the Watch, plus a lower count from the iPhone (not always carried):
+      // the dashboards must count each hour once, not add the two up.
+      const steps = inWorkout ? (workout!.kind === "run" ? 1_550 : 120) : rhythm * 40 + 25;
+      const watchSteps = Math.round(steps * (0.85 + stepSeq() * 0.3));
+      await record("HKQuantityTypeIdentifierStepCount", "count", at, at + 10 * MIN, watchSteps);
+      if (!inWorkout && stepSeq() < 0.8) {
+        await record("HKQuantityTypeIdentifierStepCount", "count", at, at + 10 * MIN, Math.round(watchSteps * (0.7 + stepSeq() * 0.2)), PHONE);
+      }
     }
 
     if (workout) {

@@ -26,11 +26,12 @@ async function loadSummary() {
       select: { qty: true, timestamp: true, tzOffsetMin: true, localDate: true },
     });
 
-  const [restingHr, hrv, breathing, energyLatest, sleep, workout, snapshot] = await Promise.all([
+  const [restingHr, hrv, breathing, energyLatest, stepsLatest, sleep, workout, snapshot] = await Promise.all([
     latest("RESTING_HEART_RATE"),
     latest("HEART_RATE_VARIABILITY"),
     latest("RESPIRATORY_RATE"),
     latest("ACTIVE_ENERGY"),
+    latest("STEP_COUNT"),
     prisma.sleepSession.findFirst({
       // Several sources can log the same night (an iPhone "In Bed" entry next to
       // the Watch's stages); show the one that actually measured sleep.
@@ -53,22 +54,9 @@ async function loadSummary() {
     getCoachSnapshot(),
   ]);
 
-  // Hourly buckets can come from several sources (Watch + iPhone, webhook +
-  // export). Like the Health app, count each hour once: take the biggest source.
-  let activeEnergy: { kcal: number; localDate: Date; tzOffsetMin: number } | null = null;
-  if (energyLatest) {
-    const [row] = await prisma.$queryRaw<{ kcal: number | null }[]>`
-      SELECT SUM(hour_kcal)::float8 AS kcal FROM (
-        SELECT MAX(source_kcal) AS hour_kcal FROM (
-          SELECT "localHour", source, SUM(qty) AS source_kcal
-          FROM "MetricSample"
-          WHERE type = 'ACTIVE_ENERGY'::"MetricType" AND "localDate" = ${energyLatest.localDate}::date
-          GROUP BY "localHour", source
-        ) per_source
-        GROUP BY "localHour"
-      ) per_hour`;
-    activeEnergy = { kcal: row?.kcal ?? 0, localDate: energyLatest.localDate, tzOffsetMin: energyLatest.tzOffsetMin };
-  }
+  const [energyTotal, stepTotal] = await Promise.all([dailyTotal("ACTIVE_ENERGY", energyLatest), dailyTotal("STEP_COUNT", stepsLatest)]);
+  const activeEnergy = energyTotal && { kcal: energyTotal.total, localDate: energyTotal.localDate, tzOffsetMin: energyTotal.tzOffsetMin };
+  const steps = stepTotal && { count: Math.round(stepTotal.total), localDate: stepTotal.localDate, tzOffsetMin: stepTotal.tzOffsetMin };
 
   return {
     readiness: snapshot?.readiness ?? null,
@@ -78,10 +66,31 @@ async function loadSummary() {
     hrv,
     breathing,
     activeEnergy,
+    steps,
     sleep,
     workout,
-    isEmpty: !restingHr && !hrv && !breathing && !activeEnergy && !sleep && !workout,
+    isEmpty: !restingHr && !hrv && !breathing && !activeEnergy && !steps && !sleep && !workout,
   };
+}
+
+/**
+ * A day's total for an hourly-summed metric (energy, steps). Hourly buckets can
+ * come from several sources (Watch + iPhone, webhook + export); like the Health
+ * app, each hour counts once: take the biggest source, then add up the hours.
+ */
+async function dailyTotal(type: MetricType, day: { localDate: Date; tzOffsetMin: number } | null) {
+  if (!day) return null;
+  const [row] = await prisma.$queryRaw<{ total: number | null }[]>`
+    SELECT SUM(hour_total)::float8 AS total FROM (
+      SELECT MAX(source_total) AS hour_total FROM (
+        SELECT "localHour", source, SUM(qty) AS source_total
+        FROM "MetricSample"
+        WHERE type = ${type}::"MetricType" AND "localDate" = ${day.localDate}::date
+        GROUP BY "localHour", source
+      ) per_source
+      GROUP BY "localHour"
+    ) per_hour`;
+  return { total: row?.total ?? 0, localDate: day.localDate, tzOffsetMin: day.tzOffsetMin };
 }
 
 /** Latest data arrival: a webhook sync or a finished file import. */
