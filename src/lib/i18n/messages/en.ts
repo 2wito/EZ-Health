@@ -340,8 +340,12 @@ export const en = {
     message: "Message the coach",
     placeholder: "Ask your coach",
     placeholderOff: "Coach not set up",
+    placeholderLimit: "No questions left today",
     stop: "Stop",
     send: "Send",
+    left: (n: number, limit: number) => `${n} of ${limit} questions left today`,
+    limitReached: (limit: number) => `You've used today's ${limit} questions. The coach is available again tomorrow.`,
+    tooLong: (max: number) => `That message is too long. Keep it under ${max} characters.`,
   },
 
   upload: {

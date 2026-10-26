@@ -1,5 +1,6 @@
 import { convertToModelMessages, createUIMessageStreamResponse, streamText, toUIMessageStream, type UIMessage } from "ai";
 import { NextResponse } from "next/server";
+import { consumeQuestion } from "@/lib/coach/limit";
 import { getCoachModel } from "@/lib/coach/model";
 import { getCoachSnapshot, snapshotToBriefing } from "@/lib/coach/snapshot";
 import { isLocale, type Locale } from "@/lib/i18n/config";
@@ -10,6 +11,7 @@ export const maxDuration = 60;
 
 // Long chats cost more and add little; the briefing carries the data anyway.
 const MAX_MESSAGES = 20;
+const MAX_MESSAGE_CHARS = 2000;
 
 const INSTRUCTIONS = `You are the performance coach inside EZ Health, a personal Apple Health dashboard.
 You coach one person, using only the data briefing below. Today's date is the briefing's "as of" date.
@@ -55,6 +57,18 @@ export async function POST(req: Request) {
     messages = (body.messages as UIMessage[]).slice(-MAX_MESSAGES);
   } catch {
     return NextResponse.json({ error: "Expected { messages: UIMessage[] }" }, { status: 400 });
+  }
+
+  // Long pastes cost tokens and aren't questions.
+  const textLength = (m: UIMessage) =>
+    (m.parts ?? []).reduce((n, p) => n + (p.type === "text" && typeof p.text === "string" ? p.text.length : 0), 0);
+  if (messages.some((m) => m.role === "user" && textLength(m) > MAX_MESSAGE_CHARS)) {
+    return NextResponse.json({ error: "message_too_long", max: MAX_MESSAGE_CHARS }, { status: 413 });
+  }
+
+  const allowance = await consumeQuestion(req.headers);
+  if (allowance && !allowance.allowed) {
+    return NextResponse.json({ error: "daily_limit", limit: allowance.limit }, { status: 429 });
   }
 
   const snapshot = await getCoachSnapshot();

@@ -1,6 +1,7 @@
 import { Sparkles } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { connection } from "next/server";
 import { CoachChat } from "@/components/coach/coach-chat";
 import { ReadinessCard } from "@/components/coach/readiness-card";
@@ -8,6 +9,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { Card } from "@/components/ui/card";
 import { DatabaseError } from "@/components/ui/database-error";
 import { EmptyState } from "@/components/ui/empty-state";
+import { getAllowance } from "@/lib/coach/limit";
 import { getCoachModel } from "@/lib/coach/model";
 import { getCoachSnapshot, type CoachSnapshot } from "@/lib/coach/snapshot";
 import { getI18n } from "@/lib/i18n/server";
@@ -48,6 +50,7 @@ export default async function CoachPage() {
   }
 
   const coach = getCoachModel();
+  const allowance = coach ? await getAllowance(await headers()).catch(() => null) : null;
   return (
     <>
       <PageHeader title={title} subtitle={t.coach.basedOn(f.chartDay(snapshot.asOf, 0, true))} />
@@ -66,7 +69,7 @@ export default async function CoachPage() {
             </p>
           </Card>
         </div>
-        <CoachChat enabled={coach !== null} modelLabel={coach?.label ?? null} />
+        <CoachChat enabled={coach !== null} modelLabel={coach?.label ?? null} allowance={allowance} />
       </div>
     </>
   );

@@ -383,8 +383,12 @@ export const he: Messages = {
     message: "הודעה למאמן",
     placeholder: "שאלו את המאמן",
     placeholderOff: "המאמן לא מוגדר",
+    placeholderLimit: "לא נותרו שאלות להיום",
     stop: "עצירה",
     send: "שליחה",
+    left: (n: number, limit: number) => `נותרו ${n} מתוך ${limit} שאלות להיום`,
+    limitReached: (limit: number) => `ניצלתם את ${limit} השאלות של היום. המאמן יהיה זמין שוב מחר.`,
+    tooLong: (max: number) => `ההודעה ארוכה מדי. כתבו עד ${max} תווים.`,
   },
 
   upload: {

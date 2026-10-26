@@ -122,6 +122,7 @@ Unit tests cover the logic the dashboards depend on: the scores and trend verdic
 1. Add the Prisma Postgres integration to the Vercel project. It sets `DATABASE_URL` (direct `postgres://` URL), which is what the app uses. No Accelerate extension is needed.
 2. Create the tables once, from your machine, with the same URL: `DATABASE_URL="postgres://..." npm run db:deploy`. Re-run it after adding migrations.
 3. Add `INGEST_API_KEY` and an AI key in Vercel's environment variables, then deploy. `npm run build` runs `prisma generate && next build`.
+4. The coach allows each visitor 5 questions a day (`COACH_DAILY_LIMIT`, counted per IP as a salted hash in Postgres, so it holds across serverless instances). Messages are capped at 2,000 characters and answers at 1,200 tokens.
 
 ## Project layout
 
@@ -144,4 +145,4 @@ Unit tests cover the logic the dashboards depend on: the scores and trend verdic
 
 ## Limitations
 
-**No authentication yet.** Anyone who can reach the server can view the dashboards, upload data and use the coach (and your AI key). Keep it on localhost or behind a private network until auth is added. The app is single-user by design, and its scores are informational, not medical advice.
+**No authentication yet.** Anyone who can reach the server can view the dashboards, upload data and use the coach (within the daily question limit, on your AI key). Keep it on localhost or behind a private network until auth is added. The app is single-user by design, and its scores are informational, not medical advice.

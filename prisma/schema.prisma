@@ -208,3 +208,13 @@ model IngestLog {
   error            String?
   durationMs       Int?
 }
+
+/// Coach questions per visitor per day, for the daily limit. The visitor is a
+/// salted hash of the IP and the day, so it can't be traced back or linked across days.
+model CoachUsage {
+  visitor String
+  day     DateTime @db.Date
+  count   Int      @default(0)
+
+  @@id([visitor, day])
+}

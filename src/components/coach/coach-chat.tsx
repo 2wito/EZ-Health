@@ -28,7 +28,28 @@ const MARKDOWN: Components = {
   ),
 };
 
-export function CoachChat({ enabled, modelLabel }: { enabled: boolean; modelLabel: string | null }) {
+const MAX_CHARS = 2000; // matches the API's limit
+
+/** The API answers refusals with JSON `{ error }`, which the transport passes on as the message. */
+function refusal(error: Error | undefined): { error?: string; limit?: number; max?: number } {
+  if (!error) return {};
+  try {
+    return JSON.parse(error.message);
+  } catch {
+    return {};
+  }
+}
+
+export function CoachChat({
+  enabled,
+  modelLabel,
+  allowance,
+}: {
+  enabled: boolean;
+  modelLabel: string | null;
+  /** Questions left today; null when there's no daily limit. */
+  allowance: { limit: number; remaining: number } | null;
+}) {
   const { t, locale } = useI18n();
   // The locale rides along so the coach answers in the language of the page. Read
   // through a ref: useChat keeps its first transport, and the language can change.
@@ -40,6 +61,11 @@ export function CoachChat({ enabled, modelLabel }: { enabled: boolean; modelLabe
   const [input, setInput] = useState("");
   const { messages, sendMessage, status, stop, error, regenerate, setMessages } = useChat({ transport });
   const busy = status === "submitted" || status === "streaming";
+  const [remaining, setRemaining] = useState(allowance?.remaining ?? null);
+  const refused = refusal(error);
+  const limitHit = remaining === 0 || refused.error === "daily_limit";
+  const canAsk = enabled && !limitHit;
+  const spendOne = () => setRemaining((r) => (r === null ? r : Math.max(0, r - 1)));
   const scroller = useRef<HTMLDivElement>(null);
 
   // Follow the answer as it streams in.
@@ -49,7 +75,8 @@ export function CoachChat({ enabled, modelLabel }: { enabled: boolean; modelLabe
 
   function send(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    if (!trimmed || busy || !canAsk) return;
+    spendOne();
     sendMessage({ text: trimmed });
     setInput("");
   }
@@ -94,9 +121,9 @@ export function CoachChat({ enabled, modelLabel }: { enabled: boolean; modelLabe
           {messages.length === 0 && (
             <div className="flex h-full flex-col justify-end gap-4">
               <p className="max-w-md text-[15px] leading-[22px] text-muted-foreground">
-                {enabled ? t.coach.intro : t.coach.disabled}
+                {!enabled ? t.coach.disabled : limitHit ? t.coach.limitReached(allowance?.limit ?? 0) : t.coach.intro}
               </p>
-              {enabled && (
+              {canAsk && (
                 <div className="flex flex-wrap gap-2">
                   {t.coach.suggestions.map((s) => (
                     <button
@@ -132,10 +159,25 @@ export function CoachChat({ enabled, modelLabel }: { enabled: boolean; modelLabe
 
           {error && (
             <div role="alert" className="flex items-center gap-3 rounded-2xl bg-muted px-4 py-3 text-[14px]">
-              <span className="flex-1">{t.coach.error}</span>
-              <button type="button" onClick={() => regenerate()} className="inline-flex items-center gap-1 font-medium text-primary">
-                <RotateCcw aria-hidden className="size-4" /> {t.coach.retry}
-              </button>
+              <span className="flex-1">
+                {refused.error === "daily_limit"
+                  ? t.coach.limitReached(refused.limit ?? allowance?.limit ?? 0)
+                  : refused.error === "message_too_long"
+                    ? t.coach.tooLong(refused.max ?? MAX_CHARS)
+                    : t.coach.error}
+              </span>
+              {!refused.error && canAsk && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    spendOne();
+                    regenerate();
+                  }}
+                  className="inline-flex items-center gap-1 font-medium text-primary"
+                >
+                  <RotateCcw aria-hidden className="size-4" /> {t.coach.retry}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -154,8 +196,9 @@ export function CoachChat({ enabled, modelLabel }: { enabled: boolean; modelLabe
             id="coach-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            disabled={!enabled}
-            placeholder={enabled ? t.coach.placeholder : t.coach.placeholderOff}
+            disabled={!canAsk}
+            maxLength={MAX_CHARS}
+            placeholder={!enabled ? t.coach.placeholderOff : limitHit ? t.coach.placeholderLimit : t.coach.placeholder}
             autoComplete="off"
             className="h-10 min-w-0 flex-1 rounded-full border border-border bg-background px-4 text-[15px] outline-none placeholder:text-subtle-foreground focus-visible:border-primary disabled:opacity-60"
           />
@@ -171,7 +214,7 @@ export function CoachChat({ enabled, modelLabel }: { enabled: boolean; modelLabe
           ) : (
             <button
               type="submit"
-              disabled={!enabled || !input.trim()}
+              disabled={!canAsk || !input.trim()}
               aria-label={t.coach.send}
               className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-35"
             >
@@ -179,6 +222,11 @@ export function CoachChat({ enabled, modelLabel }: { enabled: boolean; modelLabe
             </button>
           )}
         </form>
+        {enabled && remaining !== null && allowance && (
+          <p className="-mt-1 px-5 pb-3 text-[12px] text-subtle-foreground" aria-live="polite">
+            {t.coach.left(limitHit ? 0 : remaining, allowance.limit)}
+          </p>
+        )}
       </section>
     </div>
   );
