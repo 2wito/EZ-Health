@@ -1,103 +1,138 @@
-import Image from "next/image";
+import { Activity, BedDouble, Dumbbell, Flame, Heart, MoonStar, Sparkles, Wind } from "lucide-react";
+import { headers } from "next/headers";
+import Link from "next/link";
+import { PageHeader } from "@/components/shell/page-header";
+import { TodayLabel } from "@/components/shell/today-label";
+import { ConnectCard } from "@/components/summary/connect-card";
+import { SectionTitle } from "@/components/ui/card";
+import { DatabaseError } from "@/components/ui/database-error";
+import { MetricTile } from "@/components/ui/metric-tile";
+import { formatClock, formatDay, formatNumber, formatWhen, hoursToMeasure } from "@/lib/format";
+import { sleepScore } from "@/lib/analytics/sleep";
+import { getSummary, type Summary } from "@/lib/queries/summary";
 
-export default function Home() {
+export default async function SummaryPage() {
+  const result = await getSummary();
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+    <>
+      <PageHeader
+        title="Summary"
+        subtitle={<TodayLabel />}
+        actions={
+          // The sidebar has Import on larger screens.
+          <Link href="/upload" className="mb-1.5 text-[17px] text-primary lg:hidden">
+            Import
+          </Link>
+        }
+      />
+      {result.ok ? <SummaryContent data={result.data} /> : <DatabaseError message={result.error} />}
+    </>
   );
+}
+
+async function SummaryContent({ data }: { data: Summary }) {
+  const { readiness, readinessDay, restingHr, hrv, breathing, activeEnergy, sleep, workout } = data;
+  const score = sleep
+    ? sleepScore({ total: sleep.totalSleep, deep: sleep.deepHours, rem: sleep.remHours, awake: sleep.awakeHours })
+    : null;
+
+  return (
+    <>
+      {data.isEmpty && (
+        <div className="mb-8">
+          <ConnectCard endpoint={await ingestEndpoint()} />
+        </div>
+      )}
+
+      <SectionTitle>Latest</SectionTitle>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile
+          label="Readiness"
+          icon={Sparkles}
+          tint="coach"
+          href="/coach"
+          measure={readiness ? [[String(readiness.score), "/ 100"]] : null}
+          caption={readiness && readinessDay ? formatDay(readinessDay, restingHr?.tzOffsetMin ?? 0) : undefined}
+          detail={readiness?.label}
+        />
+        <MetricTile
+          label="Sleep Score"
+          icon={MoonStar}
+          tint="sleep"
+          href="/sleep"
+          measure={score !== null ? [[String(score), "/ 100"]] : null}
+          caption={sleep ? formatDay(sleep.date, sleep.tzOffsetMin) : undefined}
+          detail={sleep ? `${hoursToMeasure(sleep.totalSleep).map(([v, u]) => `${v} ${u}`).join(" ")} asleep` : undefined}
+        />
+        <MetricTile
+          label="Resting Heart Rate"
+          icon={Heart}
+          tint="heart"
+          href="/heart"
+          measure={restingHr?.qty != null ? [[formatNumber(restingHr.qty), "bpm"]] : null}
+          caption={restingHr ? formatWhen(restingHr.timestamp, restingHr.tzOffsetMin) : undefined}
+        />
+        <MetricTile
+          label="Heart Rate Variability"
+          icon={Activity}
+          tint="heart"
+          href="/heart"
+          measure={hrv?.qty != null ? [[formatNumber(hrv.qty), "ms"]] : null}
+          caption={hrv ? formatWhen(hrv.timestamp, hrv.tzOffsetMin) : undefined}
+        />
+        <MetricTile
+          label="Respiratory Rate"
+          icon={Wind}
+          tint="breathing"
+          href="/heart"
+          measure={breathing?.qty != null ? [[formatNumber(breathing.qty, 1), "breaths/min"]] : null}
+          caption={breathing ? formatWhen(breathing.timestamp, breathing.tzOffsetMin) : undefined}
+        />
+        <MetricTile
+          label="Sleep"
+          icon={BedDouble}
+          tint="sleep"
+          href="/sleep"
+          measure={sleep ? hoursToMeasure(sleep.totalSleep) : null}
+          caption={sleep ? formatDay(sleep.date, sleep.tzOffsetMin) : undefined}
+          detail={
+            sleep?.sleepStart && sleep.sleepEnd
+              ? `${formatClock(sleep.sleepStart, sleep.tzOffsetMin)} – ${formatClock(sleep.sleepEnd, sleep.tzOffsetMin)}`
+              : undefined
+          }
+        />
+        <MetricTile
+          label="Active Energy"
+          icon={Flame}
+          tint="activity"
+          href="/activity"
+          measure={activeEnergy ? [[formatNumber(activeEnergy.kcal), "kcal"]] : null}
+          caption={activeEnergy ? formatDay(activeEnergy.localDate, activeEnergy.tzOffsetMin) : undefined}
+        />
+        <MetricTile
+          label="Workout"
+          icon={Dumbbell}
+          tint="workout"
+          href="/activity"
+          measure={workout ? [[String(Math.round(workout.durationSec / 60)), "min"]] : null}
+          caption={workout ? formatWhen(workout.start, workout.tzOffsetMin) : undefined}
+          detail={
+            workout
+              ? [workout.name, workout.distanceKm ? `${formatNumber(workout.distanceKm, 2)} km` : null]
+                  .filter(Boolean)
+                  .join(", ")
+              : undefined
+          }
+        />
+      </div>
+    </>
+  );
+}
+
+async function ingestEndpoint() {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  return `${proto}://${host}/api/health-ingest`;
 }

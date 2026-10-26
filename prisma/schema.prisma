@@ -1,0 +1,210 @@
+// Apple Health data received from the "Health Auto Export" iOS app.
+//
+// Timestamps are stored as UTC (timestamptz). Because the dashboard groups by
+// the user's *local* day/hour, each row also keeps the UTC offset it was
+// recorded with plus precomputed local date / hour / weekday columns.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MetricType {
+  HEART_RATE // min / avg / max per sample
+  RESTING_HEART_RATE
+  WALKING_HEART_RATE_AVG
+  HEART_RATE_VARIABILITY // SDNN, ms
+  RESPIRATORY_RATE // breaths / min
+  ACTIVE_ENERGY // kcal
+  BASAL_ENERGY // kcal
+  STEP_COUNT
+  EXERCISE_TIME // minutes
+  VO2_MAX // ml/(kg·min)
+  BLOOD_OXYGEN // %
+}
+
+enum SleepStageType {
+  IN_BED
+  AWAKE
+  ASLEEP // unspecified asleep (older watches / third-party sources)
+  CORE // Apple's "Core" == light sleep
+  DEEP
+  REM
+}
+
+/// Time-series sample for any quantity metric.
+model MetricSample {
+  id           String     @id @default(cuid())
+  type         MetricType
+  timestamp    DateTime   @db.Timestamptz(3)
+  tzOffsetMin  Int        @default(0)
+  localDate    DateTime   @db.Date
+  localHour    Int        @db.SmallInt // 0-23
+  localWeekday Int        @db.SmallInt // 0 = Sunday ... 6 = Saturday
+
+  qty  Float? // single-value metrics
+  min  Float? // HEART_RATE only
+  avg  Float?
+  max  Float?
+  unit String
+
+  source    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@unique([type, timestamp, source])
+  @@index([type, localDate])
+  @@index([type, localWeekday, localHour])
+}
+
+/// One night (or nap) of sleep, attributed to the local date the user woke up.
+model SleepSession {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  tzOffsetMin Int      @default(0)
+
+  sleepStart DateTime? @db.Timestamptz(3)
+  sleepEnd   DateTime? @db.Timestamptz(3)
+  inBedStart DateTime? @db.Timestamptz(3)
+  inBedEnd   DateTime? @db.Timestamptz(3)
+
+  // Durations in hours.
+  inBedHours  Float?
+  totalSleep  Float
+  coreHours   Float  @default(0)
+  deepHours   Float  @default(0)
+  remHours    Float  @default(0)
+  awakeHours  Float  @default(0)
+  asleepHours Float  @default(0) // unspecified asleep
+
+  source    String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stages SleepStage[]
+
+  @@unique([date, source])
+  @@index([date])
+}
+
+/// Individual sleep-stage segment (only present when the export is not aggregated).
+/// Drives the sleep-cycle timeline / hypnogram.
+model SleepStage {
+  id          String         @id @default(cuid())
+  stage       SleepStageType
+  start       DateTime       @db.Timestamptz(3)
+  end         DateTime       @db.Timestamptz(3)
+  tzOffsetMin Int            @default(0)
+  source      String         @default("")
+
+  sessionId String?
+  session   SleepSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@unique([stage, start, source])
+  @@index([start])
+  @@index([sessionId])
+}
+
+model Workout {
+  id          String   @id @default(cuid())
+  externalId  String? // Health Auto Export workout id
+  name        String // e.g. "Outdoor Run", "Traditional Strength Training"
+  source      String   @default("")
+  start       DateTime @db.Timestamptz(3)
+  end         DateTime @db.Timestamptz(3)
+  tzOffsetMin Int      @default(0)
+  localDate   DateTime @db.Date
+
+  durationSec      Int
+  activeEnergyKcal Float?
+  distanceKm       Float?
+  avgSpeedKmh      Float?
+  elevationUpM     Float?
+  stepCount        Float?
+  intensityMet     Float?
+
+  avgHr Float?
+  minHr Float?
+  maxHr Float?
+
+  /// [{ t: ISO string, min, avg, max }] — in-workout heart-rate curve.
+  hrSeries Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Keyed on start alone: the webhook and the XML export name the same
+  // workout differently ("Outdoor Run" vs HKWorkoutActivityTypeRunning).
+  @@unique([start])
+  @@index([localDate])
+  @@index([name, start])
+}
+
+/// Apple's own daily Activity ring totals (from export.xml <ActivitySummary>).
+/// Already de-duplicated across iPhone + Watch, so it's the most reliable daily calorie figure.
+model DailyActivity {
+  date             DateTime @id @db.Date
+  activeEnergyKcal Float?
+  activeEnergyGoal Float?
+  exerciseMin      Float?
+  exerciseGoalMin  Float?
+  standHours       Float?
+  standGoalHours   Float?
+  updatedAt        DateTime @updatedAt
+}
+
+enum ImportStatus {
+  UPLOADING
+  QUEUED
+  READING
+  SAVING
+  DONE
+  FAILED
+}
+
+/// Manual upload of an Apple Health export (export.zip / export.xml).
+model ImportJob {
+  id        String       @id @default(cuid())
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  status    ImportStatus @default(UPLOADING)
+
+  fileName  String
+  fileBytes BigInt @default(0)
+
+  // Progress through the (uncompressed) XML while READING.
+  bytesRead  BigInt @default(0)
+  bytesTotal BigInt @default(0)
+
+  recordsRead    Int @default(0)
+  samplesSaved   Int @default(0)
+  sleepNights    Int @default(0)
+  workoutsSaved  Int @default(0)
+  activityDays   Int @default(0)
+  recordsSkipped Int @default(0)
+  parseWarnings  Int @default(0)
+
+  dataFrom   DateTime? @db.Timestamptz(3)
+  dataTo     DateTime? @db.Timestamptz(3)
+  error      String?
+  finishedAt DateTime?
+
+  @@index([createdAt])
+}
+
+/// Audit trail of webhook calls — handy for debugging the iOS automation.
+model IngestLog {
+  id               String   @id @default(cuid())
+  receivedAt       DateTime @default(now())
+  status           String // "ok" | "partial" | "error"
+  metricsReceived  Int      @default(0)
+  samplesUpserted  Int      @default(0)
+  sleepNights      Int      @default(0)
+  workoutsUpserted Int      @default(0)
+  skippedMetrics   String[]
+  error            String?
+  durationMs       Int?
+}

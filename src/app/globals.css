@@ -1,26 +1,203 @@
 @import "tailwindcss";
 
+/* Theme is driven by next-themes toggling `.dark` on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * iOS semantic colors (grouped table style) + Apple Health category hues.
+ * Names follow shadcn/ui conventions so generated components inherit them.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f2f2f7; /* systemGroupedBackground */
+  --foreground: #000000; /* label */
+  --card: #ffffff; /* secondarySystemGroupedBackground */
+  --card-foreground: #000000;
+  --card-elevated: #ffffff;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --muted: rgb(120 120 128 / 0.12); /* tertiarySystemFill */
+  --muted-foreground: rgb(60 60 67 / 0.6); /* secondaryLabel */
+  --subtle-foreground: rgb(60 60 67 / 0.3); /* tertiaryLabel */
+  --border: rgb(60 60 67 / 0.12);
+  --input: rgb(120 120 128 / 0.12);
+  --primary: #007aff; /* systemBlue */
+  --primary-foreground: #ffffff;
+  --secondary: rgb(120 120 128 / 0.12);
+  --secondary-foreground: #000000;
+  --accent: rgb(120 120 128 / 0.12);
+  --accent-foreground: #000000;
+  --destructive: #ff3b30;
+  --ring: #007aff;
+  /* bar material behind sidebars / tab bars */
+  --chrome: rgb(249 249 249 / 0.78);
+  --chrome-border: rgb(0 0 0 / 0.1);
+  --segment-thumb: #ffffff;
+
+  /* Apple Health categories */
+  --heart: #ff2d55;
+  --breathing: #32ade6;
+  --sleep: #5856d6;
+  --activity: #ff9500;
+  --workout: #34c759;
+  --coach: #af52de;
+  --gray: #8e8e93;
+  /* status: reserved for good/bad verdicts, never a data series */
+  --good: #34c759;
+  --warning: #ff9500;
+
+  /* Sleep stages: one-hue depth ramp (REM light → Deep dark) + a warm Awake.
+     Apple's own blue/indigo pair failed CVD + normal-vision separation. */
+  --stage-awake: #f07a3a;
+  --stage-rem: #8aa8f3;
+  --stage-core: #4f7be8;
+  --stage-deep: #2a3f9e;
+
+  /* Activity heatmap: validated 4-step sequential ramp, low → high. */
+  --heat-1: #fc9f3a;
+  --heat-2: #e57a00;
+  --heat-3: #b85a00;
+  --heat-4: #7d3b00;
+
+  --glow-strength: 9%;
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -12px rgb(0 0 0 / 0.08);
+}
+
+.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #1c1c1e;
+  --card-foreground: #ffffff;
+  --card-elevated: #2c2c2e;
+  --popover: #2c2c2e;
+  --popover-foreground: #ffffff;
+  --muted: rgb(118 118 128 / 0.24);
+  --muted-foreground: rgb(235 235 245 / 0.6);
+  --subtle-foreground: rgb(235 235 245 / 0.3);
+  --border: rgb(255 255 255 / 0.07);
+  --input: rgb(118 118 128 / 0.24);
+  --primary: #0a84ff;
+  --secondary: rgb(118 118 128 / 0.24);
+  --secondary-foreground: #ffffff;
+  --accent: rgb(118 118 128 / 0.24);
+  --accent-foreground: #ffffff;
+  --destructive: #ff453a;
+  --ring: #0a84ff;
+  --chrome: rgb(22 22 24 / 0.72);
+  --chrome-border: rgb(255 255 255 / 0.08);
+  --segment-thumb: #636366;
+
+  --heart: #ff375f;
+  --breathing: #64d2ff;
+  --sleep: #5e5ce6;
+  --activity: #ff9f0a;
+  --workout: #30d158;
+  --coach: #bf5af2;
+  --gray: #8e8e93;
+  --good: #30d158;
+  --warning: #ff9f0a;
+
+  --stage-awake: #ff9a5c;
+  --stage-rem: #a9c1ff;
+  --stage-core: #5b85f0;
+  --stage-deep: #3448b8;
+
+  /* On dark surfaces magnitude rises toward brighter. */
+  --heat-1: #b56508;
+  --heat-2: #e37f0a;
+  --heat-3: #ffaa45;
+  --heat-4: #ffd29a;
+
+  --glow-strength: 16%;
+  --card-shadow: none;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-card-elevated: var(--card-elevated);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-ring: var(--ring);
+  --color-chrome: var(--chrome);
+  --color-chrome-border: var(--chrome-border);
+  --color-segment-thumb: var(--segment-thumb);
+
+  --color-heart: var(--heart);
+  --color-breathing: var(--breathing);
+  --color-sleep: var(--sleep);
+  --color-activity: var(--activity);
+  --color-workout: var(--workout);
+  --color-coach: var(--coach);
+  --color-gray: var(--gray);
+  --color-stage-awake: var(--stage-awake);
+  --color-stage-rem: var(--stage-rem);
+  --color-stage-core: var(--stage-core);
+  --color-stage-deep: var(--stage-deep);
+
+  /* SF Pro on Apple devices, Inter elsewhere. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter), system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", var(--font-inter), system-ui, sans-serif;
+  /* Health-app numerals: SF Pro Rounded where available. */
+  --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, var(--font-inter), system-ui, sans-serif;
+
+  --shadow-card: var(--card-shadow);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  :focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--ring) 60%, transparent);
+    outline-offset: 2px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Faint category-tinted wash in a card's top corner. Set --tint on the element. */
+@utility glow {
+  background-image: radial-gradient(
+    110% 90% at 0% 0%,
+    color-mix(in srgb, var(--tint, transparent) var(--glow-strength), transparent),
+    transparent 62%
+  );
+}
+
+/* Apple Intelligence–style spectrum, reserved for the AI Coach. */
+@utility bg-spectrum {
+  background-image: linear-gradient(135deg, #ff6b3d 0%, #ff3d8b 30%, #b45cff 62%, #3d8bff 100%);
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Indeterminate progress bar sweep. */
+@keyframes indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
 }

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE HealthData [
+<!-- HealthKit Export Version: 14 -->
+<!ELEMENT HealthData (ExportDate,Me,(Record|Correlation|Workout|ActivitySummary|ClinicalRecord|Audiogram|VisionPrescription)*)>
+<!ATTLIST HealthData
+  locale CDATA #REQUIRED
+>
+<!ELEMENT ExportDate EMPTY>
+<!ATTLIST ExportDate
+  value CDATA #REQUIRED
+>
+<!ELEMENT Record ((MetadataEntry|HeartRateVariabilityMetadataList)*)>
+<!ATTLIST Record
+  type          CDATA #REQUIRED
+  unit          CDATA #IMPLIED
+  value         CDATA #IMPLIED
+  sourceName    CDATA #REQUIRED
+  startDate     CDATA #REQUIRED
+  endDate       CDATA #REQUIRED
+>
+]>
+<HealthData locale="en_IL">
+ <ExportDate value="2026-10-26 09:00:00 +0200"/>
+ <Me HKCharacteristicTypeIdentifierDateOfBirth="" HKCharacteristicTypeIdentifierBiologicalSex="HKBiologicalSexMale"/>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Itay’s Apple Watch" unit="count/min" creationDate="2026-10-24 08:05:10 +0300" startDate="2026-10-24 08:05:00 +0300" endDate="2026-10-24 08:05:00 +0300" value="62">
+  <MetadataEntry key="HKMetadataKeyHeartRateMotionContext" value="1"/>
+ </Record>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Itay’s Apple Watch" unit="count/min" startDate="2026-10-24 08:25:00 +0300" endDate="2026-10-24 08:25:00 +0300" value="70"/>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Itay’s Apple Watch" unit="count/min" startDate="2026-10-24 08:55:00 +0300" endDate="2026-10-24 08:55:00 +0300" value="90"/>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Itay’s Apple Watch" unit="count/min" startDate="2026-10-24 09:01:00 +0300" endDate="2026-10-24 09:01:00 +0300" value="120"/>
+ <Record type="HKQuantityTypeIdentifierRestingHeartRate" sourceName="Itay’s Apple Watch" unit="count/min" startDate="2026-10-24 00:00:00 +0300" endDate="2026-10-24 23:59:00 +0300" value="53"/>
+ <Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" sourceName="Itay’s Apple Watch" unit="ms" startDate="2026-10-24 03:10:00 +0300" endDate="2026-10-24 03:11:00 +0300" value="51.3"/>
+ <Record type="HKQuantityTypeIdentifierRespiratoryRate" sourceName="Itay’s Apple Watch" unit="count/min" startDate="2026-10-24 02:10:00 +0300" endDate="2026-10-24 02:10:00 +0300" value="14"/>
+ <Record type="HKQuantityTypeIdentifierRespiratoryRate" sourceName="Itay’s Apple Watch" unit="count/min" startDate="2026-10-24 02:40:00 +0300" endDate="2026-10-24 02:40:00 +0300" value="15"/>
+ <Record type="HKQuantityTypeIdentifierOxygenSaturation" sourceName="Itay’s Apple Watch" unit="%" startDate="2026-10-24 02:15:00 +0300" endDate="2026-10-24 02:15:00 +0300" value="0.97"/>
+ <Record type="HKQuantityTypeIdentifierActiveEnergyBurned" sourceName="Itay’s Apple Watch" unit="kcal" startDate="2026-10-24 18:00:00 +0300" endDate="2026-10-24 18:01:00 +0300" value="12.5"/>
+ <Record type="HKQuantityTypeIdentifierActiveEnergyBurned" sourceName="Itay’s Apple Watch" unit="kcal" startDate="2026-10-24 18:30:00 +0300" endDate="2026-10-24 18:31:00 +0300" value="7.5"/>
+ <Record type="HKQuantityTypeIdentifierActiveEnergyBurned" sourceName="iPhone" unit="kJ" startDate="2026-10-24 18:10:00 +0300" endDate="2026-10-24 18:20:00 +0300" value="41.84"/>
+ <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-10-24 18:10:00 +0300" endDate="2026-10-24 18:20:00 +0300" value="900"/>
+ <Record type="HKQuantityTypeIdentifierDietaryWater" sourceName="WaterMinder" unit="mL" startDate="2026-10-24 12:00:00 +0300" endDate="2026-10-24 12:00:00 +0300" value="500"/>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Itay’s Apple Watch" unit="count/min" startDate="not a date" endDate="not a date" value="80"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="iPhone" startDate="2026-10-23 23:15:00 +0300" endDate="2026-10-24 07:00:00 +0300" value="HKCategoryValueSleepAnalysisInBed"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Itay’s Apple Watch" startDate="2026-10-23 23:30:00 +0300" endDate="2026-10-24 01:00:00 +0300" value="HKCategoryValueSleepAnalysisAsleepCore"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Itay’s Apple Watch" startDate="2026-10-24 01:00:00 +0300" endDate="2026-10-24 01:50:00 +0300" value="HKCategoryValueSleepAnalysisAsleepDeep"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Itay’s Apple Watch" startDate="2026-10-24 01:50:00 +0300" endDate="2026-10-24 02:00:00 +0300" value="HKCategoryValueSleepAnalysisAwake"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Itay’s Apple Watch" startDate="2026-10-24 02:00:00 +0300" endDate="2026-10-24 03:30:00 +0300" value="HKCategoryValueSleepAnalysisAsleepREM"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" sourceName="Itay’s Apple Watch" startDate="2026-10-24 03:30:00 +0300" endDate="2026-10-24 06:50:00 +0300" value="HKCategoryValueSleepAnalysisAsleepCore"/>
+ <Workout workoutActivityType="HKWorkoutActivityTypeRunning" duration="32.5" durationUnit="min" sourceName="Itay’s Apple Watch" creationDate="2026-10-24 18:33:00 +0300" startDate="2026-10-24 18:00:00 +0300" endDate="2026-10-24 18:32:30 +0300">
+  <MetadataEntry key="HKIndoorWorkout" value="0"/>
+  <MetadataEntry key="HKElevationAscended" value="4200 cm"/>
+  <MetadataEntry key="HKAverageMETs" value="10.4 kcal/hr·kg"/>
+  <WorkoutEvent type="HKWorkoutEventTypeSegment" date="2026-10-24 18:00:00 +0300" duration="10" durationUnit="min"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierActiveEnergyBurned" startDate="2026-10-24 18:00:00 +0300" endDate="2026-10-24 18:32:30 +0300" sum="401.2" unit="kcal"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierDistanceWalkingRunning" startDate="2026-10-24 18:00:00 +0300" endDate="2026-10-24 18:32:30 +0300" sum="5.61" unit="km"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierHeartRate" startDate="2026-10-24 18:00:00 +0300" endDate="2026-10-24 18:32:30 +0300" average="153.2" minimum="97" maximum="177" unit="count/min"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierStepCount" startDate="2026-10-24 18:00:00 +0300" endDate="2026-10-24 18:32:30 +0300" sum="5120" unit="count"/>
+  <WorkoutRoute sourceName="Itay’s Apple Watch" startDate="2026-10-24 18:00:00 +0300" endDate="2026-10-24 18:32:30 +0300">
+   <MetadataEntry key="HKMetadataKeySyncVersion" value="2"/>
+   <FileReference path="/workout-routes/route_2026-10-24_6.32pm.gpx"/>
+  </WorkoutRoute>
+ </Workout>
+ <Workout workoutActivityType="HKWorkoutActivityTypeTraditionalStrengthTraining" duration="48" durationUnit="min" totalEnergyBurned="285" totalEnergyBurnedUnit="kcal" sourceName="Itay’s Apple Watch" startDate="2022-03-14 17:00:00 +0200" endDate="2022-03-14 17:48:00 +0200"/>
+ <ActivitySummary dateComponents="2026-10-24" activeEnergyBurned="642.3" activeEnergyBurnedGoal="600" activeEnergyBurnedUnit="kcal" appleMoveTime="0" appleMoveTimeGoal="0" appleExerciseTime="41" appleExerciseTimeGoal="30" appleStandHours="11" appleStandHoursGoal="12"/>
+ <ActivitySummary dateComponents="2019-01-01" activeEnergyBurned="0" activeEnergyBurnedGoal="0" activeEnergyBurnedUnit="kcal" appleExerciseTime="0" appleExerciseTimeGoal="30" appleStandHours="0" appleStandHoursGoal="12"/>
+</HealthData>

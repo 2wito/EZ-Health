@@ -6,22 +6,59 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "prisma generate",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "ingest:sample": "tsx scripts/send-sample.mts",
+    "import:export": "tsx scripts/import-export.mts",
+    "demo:import": "tsx scripts/demo-data.mts import",
+    "demo:clear": "tsx scripts/demo-data.mts clear"
   },
   "dependencies": {
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
-    "next": "15.5.28"
+    "@ai-sdk/google": "^4.0.105",
+    "@ai-sdk/openai": "^4.0.102",
+    "@ai-sdk/react": "^4.0.157",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "ai": "^7.0.153",
+    "clsx": "^2.1.1",
+    "jszip": "^3.10.2",
+    "lucide-react": "^1.61.0",
+    "motion": "^14.6.0",
+    "next": "15.5.28",
+    "next-themes": "^0.4.6",
+    "pg": "^8.23.1",
+    "react": "~19.1",
+    "react-dom": "~19.1",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.10.1",
+    "saxes": "^6.0.0",
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "dotenv": "^18.0.9",
     "eslint": "^9",
     "eslint-config-next": "15.5.28",
-    "@eslint/eslintrc": "^3"
+    "prisma": "^7.10.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  },
+  "allowScripts": {
+    "prisma@7.10.1": true,
+    "@prisma/engines@7.10.1": true,
+    "esbuild@0.28.2": true,
+    "unrs-resolver@1.12.2": true
   }
 }

@@ -1,0 +1,76 @@
+{
+  "data": {
+    "metrics": [
+      {
+        "name": "heart_rate",
+        "units": "count/min",
+        "data": [
+          { "date": "2026-10-25 07:00:00 +0300", "Min": 52, "Avg": 61.5, "Max": 74, "source": "Apple Watch" },
+          { "date": "2026-10-25 18:00:00 +0300", "Min": 88, "Avg": 142, "Max": 176, "source": "Apple Watch" }
+        ]
+      },
+      { "name": "resting_heart_rate", "units": "count/min", "data": [{ "date": "2026-10-25 00:00:00 +0300", "qty": 54, "source": "Apple Watch" }] },
+      { "name": "heart_rate_variability", "units": "ms", "data": [{ "date": "2026-10-25 03:12:00 +0300", "qty": 48.2, "source": "Apple Watch" }] },
+      { "name": "respiratory_rate", "units": "count/min", "data": [{ "date": "2026-10-25 02:30:00 +0300", "qty": 14.5, "source": "Apple Watch" }] },
+      {
+        "name": "active_energy",
+        "units": "kJ",
+        "data": [
+          { "date": "2026-10-25 07:00:00 +0300", "qty": 418.4, "source": "Apple Watch" },
+          { "date": "2026-10-25 18:00:00 +0300", "qty": 2092, "source": "Apple Watch" },
+          { "date": "2026-10-25 19:00:00 +0300", "qty": null, "source": "Apple Watch" }
+        ]
+      },
+      {
+        "name": "sleep_analysis",
+        "units": "hr",
+        "data": [
+          {
+            "date": "2026-10-25 00:00:00 +0300", "totalSleep": 7.25, "asleep": 0, "core": 3.9, "deep": 1.15, "rem": 2.2, "awake": 0.35,
+            "inBed": 7.8, "sleepStart": "2026-10-24 23:40:00 +0300", "sleepEnd": "2026-10-25 07:05:00 +0300",
+            "inBedStart": "2026-10-24 23:20:00 +0300", "inBedEnd": "2026-10-25 07:10:00 +0300", "source": "Apple Watch"
+          }
+        ]
+      },
+      {
+        "name": "sleep_analysis",
+        "units": "hr",
+        "data": [
+          { "startDate": "2026-10-25 23:50:00 +0300", "endDate": "2026-10-26 01:20:00 +0300", "value": "Core", "qty": 1.5, "source": "Apple Watch" },
+          { "startDate": "2026-10-26 01:20:00 +0300", "endDate": "2026-10-26 02:05:00 +0300", "value": "Deep", "qty": 0.75, "source": "Apple Watch" },
+          { "startDate": "2026-10-26 02:05:00 +0300", "endDate": "2026-10-26 02:10:00 +0300", "value": "Awake", "qty": 0.08, "source": "Apple Watch" },
+          { "startDate": "2026-10-26 02:10:00 +0300", "endDate": "2026-10-26 03:30:00 +0300", "value": "REM", "qty": 1.33, "source": "Apple Watch" },
+          { "startDate": "2026-10-26 03:30:00 +0300", "endDate": "2026-10-26 06:45:00 +0300", "value": "Core", "qty": 3.25, "source": "Apple Watch" }
+        ]
+      },
+      { "name": "dietary_water", "units": "mL", "data": [{ "date": "2026-10-25 12:00:00 +0300", "qty": 500 }] }
+    ],
+    "workouts": [
+      {
+        "id": "8C1F2A9E-0000-4B7C-9D11-RUN000000001",
+        "name": "Outdoor Run",
+        "start": "2026-10-25 18:00:00 +0300",
+        "end": "2026-10-25 18:32:30 +0300",
+        "duration": 1950,
+        "activeEnergyBurned": { "qty": 1673.6, "units": "kJ" },
+        "distance": { "qty": 3.5, "units": "mi" },
+        "elevationUp": { "qty": 120, "units": "ft" },
+        "intensity": { "qty": 10.2, "units": "kcal/hr·kg" },
+        "heartRate": { "min": { "qty": 98, "units": "bpm" }, "avg": { "qty": 152, "units": "bpm" }, "max": { "qty": 176, "units": "bpm" } },
+        "heartRateData": [
+          { "date": "2026-10-25 18:05:00 +0300", "Min": 120, "Avg": 135, "Max": 142, "units": "bpm", "source": "Apple Watch" },
+          { "date": "2026-10-25 18:20:00 +0300", "Min": 150, "Avg": 160, "Max": 176, "units": "bpm", "source": "Apple Watch" }
+        ]
+      },
+      {
+        "name": "Traditional Strength Training",
+        "start": "2026-10-24 17:00:00 +0300",
+        "end": "2026-10-24 17:50:00 +0300",
+        "activeEnergy": { "qty": 310, "units": "kcal" },
+        "avgHeartRate": { "qty": 118, "units": "bpm" },
+        "maxHeartRate": { "qty": 151, "units": "bpm" },
+        "distance": null
+      }
+    ]
+  }
+}
