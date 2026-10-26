@@ -4,6 +4,8 @@
 
 ![Next.js 15](https://img.shields.io/badge/Next.js_15-App_Router-000?logo=nextdotjs) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white) ![Prisma 7](https://img.shields.io/badge/Prisma_7-PostgreSQL-2d3748?logo=prisma) ![Tailwind v4](https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss&logoColor=white) ![Vercel AI SDK](https://img.shields.io/badge/Vercel_AI_SDK-OpenAI_|_Gemini-000?logo=vercel)
 
+**Live demo: [ez-health-six.vercel.app](https://ez-health-six.vercel.app)** (generated demo data; the AI chat is switched off on the public demo)
+
 ![Sleep & Recovery dashboard, dark mode](docs/screenshots/sleep-dark.png)
 
 > Screenshots use the built-in generated demo data (`npm run demo:import`), not real health records.
