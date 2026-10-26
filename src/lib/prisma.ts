@@ -1,4 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
+import { attachDatabasePool } from "@vercel/functions";
+import { Pool } from "pg";
 import { PrismaClient } from "@/generated/prisma/client";
 
 // Reuse one client across hot reloads in dev so we don't exhaust connections.
@@ -15,7 +17,13 @@ function createClient() {
       "DATABASE_URL is a prisma+postgres:// Accelerate URL. Use the direct postgres:// connection string instead.",
     );
   }
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  // Small pool: hosted Postgres roles cap connections (Prisma Postgres's is low),
+  // and every serverless instance gets its own pool.
+  const pool = new Pool({ connectionString, max: Number(process.env.DB_POOL_MAX) || 3, idleTimeoutMillis: 5_000 });
+  // On Vercel, closes idle connections before an instance is suspended, so
+  // frozen instances don't hold the role's connections. A no-op elsewhere.
+  attachDatabasePool(pool);
+  return new PrismaClient({ adapter: new PrismaPg(pool) });
 }
 
 function getClient() {
