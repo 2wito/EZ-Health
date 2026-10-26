@@ -19,6 +19,7 @@
 - **Explainable scores.** Readiness, sleep score, consistency and the 7/30/90-day trend verdicts are deterministic functions with documented thresholds. A change only counts as a trend when it exceeds normal day-to-day variation.
 - **Grounded, private AI coach.** The model receives a compact text summary computed by the same code as the charts, so the advice and the dashboards never disagree, and raw samples never leave the server. Provider-agnostic: OpenAI or Gemini.
 - **Accessible charts.** Palettes are checked for color-vision deficiency and contrast in both themes, every chart has a "Show as table" view, and dark mode has its own validated colors rather than inverted ones.
+- **English and Hebrew, with a full right-to-left layout.** A language switch, or the browser's language, sets the copy, the 24-hour clock, dates and units, and the AI coach answers in that language. The layout mirrors through logical CSS properties, while charts keep time running left to right.
 
 ## Screenshots
 
@@ -35,6 +36,12 @@
   &nbsp;&nbsp;
   <img src="docs/screenshots/mobile-sleep.png" width="260" alt="Sleep on iPhone, light mode" />
 </p>
+
+### Hebrew (right to left)
+
+| Sleep & Recovery in Hebrew | Summary in Hebrew, iPhone |
+| --- | --- |
+| ![Sleep & Recovery dashboard in Hebrew, dark mode](docs/screenshots/sleep-he.png) | <img src="docs/screenshots/mobile-he.png" width="260" alt="Summary in Hebrew on iPhone" /> |
 
 ## Dashboards
 
@@ -122,6 +129,8 @@ The endpoint is idempotent: re-sent windows overwrite existing samples rather th
 | `src/lib/analytics/` | Pure scoring and trend functions |
 | `src/lib/queries/` | Per-dashboard data loading |
 | `src/lib/coach/` | Coach snapshot and model selection |
+| `src/lib/i18n/` | Locale config, English and Hebrew copy, server and client access |
+| `src/lib/format.ts` | Locale-aware dates, times, durations and numbers |
 
 ## Limitations
 
