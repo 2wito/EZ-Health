@@ -26,3 +26,24 @@ jobs:
       - run: npm test
       # The build doesn't connect to a database either (the Prisma client is created on first use).
       - run: npm run build
+
+  telemetry-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: telemetry-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Valgrind
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq valgrind
+      # Release build (-O3, warnings as errors) + unit tests + smoke run.
+      - run: scripts/build.sh --werror
+      # AddressSanitizer + UBSan build, same verification.
+      - run: scripts/build.sh --asan --werror
+      - name: Sanitizers and Valgrind on the sample export
+        run: python3 python/telemetry_profiler.py all ../scripts/sample-export.xml --runs 3
+      - name: Pipeline dry run
+        run: python3 python/pipeline.py import ../scripts/sample-export.xml --dry-run
+      - name: Stress test (500k records)
+        run: scripts/stress_test.sh --rows 500000 --runs 1
