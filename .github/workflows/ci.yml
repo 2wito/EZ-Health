@@ -23,7 +23,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      # EZT_REQUIRE_WASM: the WebAssembly parity test fails, rather than skips, if the module is missing.
       - run: npm test
+        env:
+          EZT_REQUIRE_WASM: "1"
       # The build doesn't connect to a database either (the Prisma client is created on first use).
       - run: npm run build
 
@@ -47,3 +50,28 @@ jobs:
         run: python3 python/pipeline.py import ../scripts/sample-export.xml --dry-run
       - name: Stress test (500k records)
         run: scripts/stress_test.sh --rows 500000 --runs 1
+
+  # The browser parser (public/wasm/ez-telemetry.mjs) is committed. Rebuild it
+  # from source with the same Emscripten version and fail if it differs, so the
+  # module can't drift from the C++ code. Bump EMSDK_VERSION and rebuild locally
+  # (telemetry-engine/scripts/build.sh --wasm) together.
+  wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EMSDK_VERSION: "7.0.0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Emscripten ${{ env.EMSDK_VERSION }}
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          "$HOME/emsdk/emsdk" install "$EMSDK_VERSION"
+          "$HOME/emsdk/emsdk" activate "$EMSDK_VERSION"
+      - name: Build the WebAssembly module
+        run: |
+          source "$HOME/emsdk/emsdk_env.sh"
+          telemetry-engine/scripts/build.sh --wasm --werror
+      - name: Committed module matches the source
+        run: |
+          git diff --stat --exit-code -- public/wasm ||
+            { echo "::error::public/wasm is stale: run telemetry-engine/scripts/build.sh --wasm with Emscripten $EMSDK_VERSION and commit it"; exit 1; }
