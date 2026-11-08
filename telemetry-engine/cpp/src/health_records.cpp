@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <utility>
 
@@ -120,6 +122,118 @@ std::optional<double> parse_number(std::string_view s) noexcept {
   const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
   if (ec != std::errc{} || ptr != s.data() + s.size() || !std::isfinite(v)) return std::nullopt;
   return v;
+}
+
+// ─── Workout helpers ─────────────────────────────────────────────────────────
+// Same tables and rules as src/lib/health-export/normalize.ts and buildWorkout()
+// in src/lib/apple-health/xml-parser.ts.
+
+struct UnitFactor {
+  std::string_view unit;  // lower case
+  double factor;
+};
+using UnitTable = std::span<const UnitFactor>;
+
+constexpr std::array<UnitFactor, 3> kEnergyToKcalData{{{"kcal", 1}, {"cal", 1}, {"kj", 1 / 4.184}}};
+constexpr std::array<UnitFactor, 5> kDistanceToKmData{
+    {{"km", 1}, {"m", 0.001}, {"mi", 1.609344}, {"yd", 0.0009144}, {"ft", 0.0003048}}};
+constexpr std::array<UnitFactor, 5> kSpeedToKmhData{
+    {{"km/hr", 1}, {"km/h", 1}, {"mi/hr", 1.609344}, {"mph", 1.609344}, {"m/s", 3.6}}};
+constexpr std::array<UnitFactor, 5> kLengthToMData{{{"m", 1}, {"cm", 0.01}, {"ft", 0.3048}, {"km", 1000}, {"mi", 1609.344}}};
+constexpr UnitTable kEnergyToKcal{kEnergyToKcalData};
+constexpr UnitTable kDistanceToKm{kDistanceToKmData};
+constexpr UnitTable kSpeedToKmh{kSpeedToKmhData};
+constexpr UnitTable kLengthToM{kLengthToMData};
+
+/// qty × the unit's factor (1 when the unit is missing or unknown); NaN when qty is missing.
+double convert(std::optional<double> qty, std::optional<std::string_view> unit, UnitTable table) {
+  if (!qty) return kNull;
+  if (unit) {
+    std::string lower(*unit);
+    for (char& c : lower) c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    for (const UnitFactor& u : table) {
+      if (u.unit == lower) return *qty * u.factor;
+    }
+  }
+  return *qty;
+}
+
+/// An attribute as a finite number, if it is present and is one.
+std::optional<double> num(std::optional<std::string_view> raw) noexcept {
+  return raw ? parse_number(*raw) : std::nullopt;
+}
+
+double finite_or_null(double v) noexcept { return std::isfinite(v) ? v : kNull; }
+double finite_or_null(std::optional<double> v) noexcept { return v ? finite_or_null(*v) : kNull; }
+
+/// "4500 cm" / "9.5 kcal/hr·kg" → {4500, "cm"} (the leading number and the trimmed rest).
+std::optional<std::pair<double, std::string_view>> quantity(std::optional<std::string_view> raw) {
+  if (!raw) return std::nullopt;
+  std::string_view s = *raw;
+  const auto space = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; };
+  while (!s.empty() && space(s.front())) s.remove_prefix(1);
+  std::size_t n = 0;
+  if (n < s.size() && s[n] == '-') ++n;
+  const std::size_t digits_start = n;
+  while (n < s.size() && ((s[n] >= '0' && s[n] <= '9') || s[n] == '.')) ++n;
+  if (n == digits_start) return std::nullopt;
+  double value = 0;
+  const auto [ptr, ec] = std::from_chars(s.data(), s.data() + n, value);
+  if (ec != std::errc{} || ptr != s.data() + n || !std::isfinite(value)) return std::nullopt;
+  std::string_view rest = s.substr(n);
+  while (!rest.empty() && space(rest.front())) rest.remove_prefix(1);
+  while (!rest.empty() && space(rest.back())) rest.remove_suffix(1);
+  return std::pair{value, rest};
+}
+
+/// HKWorkoutActivityType suffix → the name the Health app shows.
+std::string workout_name(std::string_view activity_type, bool indoor) {
+  constexpr std::string_view prefix = "HKWorkoutActivityType";
+  std::string_view key = activity_type.starts_with(prefix) ? activity_type.substr(prefix.size()) : activity_type;
+
+  if (key == "Running") return indoor ? "Indoor Run" : "Outdoor Run";
+  if (key == "Walking") return indoor ? "Indoor Walk" : "Outdoor Walk";
+  if (key == "Cycling") return indoor ? "Indoor Cycle" : "Outdoor Cycle";
+  if (key == "HighIntensityIntervalTraining") return "HIIT";
+  if (key == "MixedCardio") return "Mixed Cardio";
+  if (key == "StairClimbing") return "Stair Stepper";
+  if (key.empty()) return "Workout";
+
+  // "TraditionalStrengthTraining" → "Traditional Strength Training"
+  std::string out;
+  out.reserve(key.size() + 8);
+  for (std::size_t i = 0; i < key.size(); ++i) {
+    out += key[i];
+    const bool lower = key[i] >= 'a' && key[i] <= 'z';
+    if (lower && i + 1 < key.size() && key[i + 1] >= 'A' && key[i + 1] <= 'Z') out += ' ';
+  }
+  return out;
+}
+
+using Fields = HealthExportCollector::Fields;
+
+std::optional<std::string_view> get_field(const Fields& fields, std::string_view key) noexcept {
+  for (const auto& [k, v] : fields) {
+    if (k == key) return std::string_view(v);
+  }
+  return std::nullopt;
+}
+
+void set_field(Fields& fields, std::string_view key, std::string_view value) {
+  for (auto& [k, v] : fields) {
+    if (k == key) {
+      v = value;
+      return;
+    }
+  }
+  fields.emplace_back(std::string(key), std::string(value));
+}
+
+Fields copy_fields(const Element& e) {
+  Fields fields;
+  fields.reserve(e.attributes.size());
+  for (const Attribute& a : e.attributes) set_field(fields, a.name, a.value);
+  return fields;
 }
 
 bool read_digits(std::string_view s, std::size_t pos, std::size_t count, int& out) noexcept {
@@ -268,19 +382,127 @@ std::size_t HealthExportCollector::BucketKeyHash::operator()(const BucketKey& k)
 HealthExportCollector::HealthExportCollector() : pool_(kNodeBlockBytes, 8192), buckets_(&pool_) {}
 
 void HealthExportCollector::on_open(const Element& e) {
+  const int depth = depth_++;
   const std::string_view name = e.name;
+  const bool in_workout = workout_ && depth == workout_->depth + 1;  // direct child of the open <Workout>
+
   if (name == "Record") {
     ++stats.records_read;
     on_record(e);
+  } else if (name == "MetadataEntry") {
+    if (in_workout && !e.attr("key").empty()) set_field(workout_->meta, e.attr("key"), e.attr("value"));
+  } else if (name == "WorkoutStatistics") {
+    if (in_workout && !e.attr("type").empty()) {
+      Fields fields = copy_fields(e);
+      auto& list = workout_->stats;
+      const auto it = std::find_if(list.begin(), list.end(), [&](const auto& s) { return s.first == e.attr("type"); });
+      if (it != list.end()) {
+        it->second = std::move(fields);  // a repeat replaces the values but keeps its place
+      } else {
+        list.emplace_back(std::string(e.attr("type")), std::move(fields));
+      }
+    }
+  } else if (name == "Workout") {
+    ++stats.workouts_seen;
+    workout_.emplace();
+    workout_->attrs = copy_fields(e);
+    workout_->depth = depth;
   } else if (name == "ActivitySummary") {
     on_activity_summary(e);
-  } else if (name == "Workout") {
-    // Not converted yet, but part of the export's date range (as in the web importer).
-    ++stats.workouts_seen;
-    if (const auto start = parse_health_date(e.attr("startDate"))) track(start->utc_ms);
   } else if (name == "HealthData") {
     saw_root_ = true;
   }
+}
+
+void HealthExportCollector::on_close(std::string_view name) {
+  if (depth_ > 0) --depth_;
+  if (name == "Workout" && workout_) close_workout();
+}
+
+void HealthExportCollector::close_workout() {
+  const OpenWorkout w = std::move(*workout_);
+  workout_.reset();
+
+  const auto attr = [&](std::string_view k) { return get_field(w.attrs, k); };
+  const auto stat = [&](std::string_view type) -> const Fields* {
+    for (const auto& [t, fields] : w.stats) {
+      if (t == type) return &fields;
+    }
+    return nullptr;
+  };
+
+  const std::optional<Timestamp> start = parse_health_date(attr("startDate").value_or(""));
+  const std::optional<Timestamp> end = parse_health_date(attr("endDate").value_or(""));
+  if (!start || !end) {
+    ++stats.warnings;
+    return;
+  }
+
+  // Duration: the attribute (in its unit), else end - start. Math.round semantics.
+  double duration;
+  if (const std::optional<double> d = num(attr("duration"))) {
+    const std::string_view unit = attr("durationUnit").value_or("");
+    duration = *d * (unit == "s" ? 1 : unit == "hr" ? 3600 : 60);
+  } else {
+    duration = static_cast<double>(end->utc_ms - start->utc_ms) / 1000;
+  }
+  const auto duration_sec = static_cast<std::int64_t>(std::floor(duration + 0.5));
+
+  // iOS 16+ puts totals in <WorkoutStatistics>; older exports use attributes.
+  double kcal;
+  if (const Fields* s = stat("HKQuantityTypeIdentifierActiveEnergyBurned")) {
+    kcal = convert(num(get_field(*s, "sum")), get_field(*s, "unit"), kEnergyToKcal);
+  } else {
+    kcal = convert(num(attr("totalEnergyBurned")), attr("totalEnergyBurnedUnit"), kEnergyToKcal);
+  }
+
+  const Fields* distance_stat = nullptr;
+  for (const auto& [t, fields] : w.stats) {
+    if (t.starts_with("HKQuantityTypeIdentifierDistance")) {
+      distance_stat = &fields;
+      break;
+    }
+  }
+  const double distance_km =
+      distance_stat ? convert(num(get_field(*distance_stat, "sum")), get_field(*distance_stat, "unit"), kDistanceToKm)
+                    : convert(num(attr("totalDistance")), attr("totalDistanceUnit"), kDistanceToKm);
+
+  double speed = kNull;
+  if (const Fields* s = stat("HKQuantityTypeIdentifierRunningSpeed")) {
+    speed = convert(num(get_field(*s, "average")), get_field(*s, "unit"), kSpeedToKmh);
+  }
+  // `distanceKm && durationSec > 0`: zero and missing distances are both falsy.
+  if (std::isnan(speed) && !std::isnan(distance_km) && distance_km != 0 && duration_sec > 0) {
+    speed = distance_km / (static_cast<double>(duration_sec) / 3600);
+  }
+
+  const Fields* hr = stat("HKQuantityTypeIdentifierHeartRate");
+  const Fields* steps = stat("HKQuantityTypeIdentifierStepCount");
+  const auto hr_value = [&](std::string_view k) { return hr ? finite_or_null(num(get_field(*hr, k))) : kNull; };
+  const auto elevation = quantity(get_field(w.meta, "HKElevationAscended"));
+  const auto mets = quantity(get_field(w.meta, "HKAverageMETs"));
+  const std::optional<std::string_view> indoor = get_field(w.meta, "HKIndoorWorkout");
+
+  WorkoutRecord record{
+      workout_name(attr("workoutActivityType").value_or(""), indoor && *indoor == "1"),
+      start->utc_ms,
+      end->utc_ms,
+      local_parts(*start).day,
+      duration_sec,
+      finite_or_null(kcal),
+      finite_or_null(distance_km),
+      finite_or_null(speed),
+      elevation ? finite_or_null(convert(elevation->first, elevation->second, kLengthToM)) : kNull,
+      steps ? finite_or_null(num(get_field(*steps, "sum"))) : kNull,
+      mets ? mets->first : kNull,
+      hr_value("average"),
+      hr_value("minimum"),
+      hr_value("maximum"),
+      start->tz_min,
+      sources.intern(attr("sourceName").value_or("")),
+  };
+  track(record.start_ms);
+  workouts.push_back(std::move(record));
 }
 
 void HealthExportCollector::track(std::int64_t utc_ms) noexcept {

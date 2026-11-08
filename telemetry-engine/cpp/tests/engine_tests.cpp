@@ -1,8 +1,10 @@
 // Unit tests for the telemetry engine. No framework: each CHECK reports and
 // counts failures, and the exit code is the number of failures (capped at 1).
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <memory_resource>
 #include <set>
 #include <string>
@@ -14,6 +16,8 @@
 #include "health_records.hpp"
 #include "memory_pool.hpp"
 #include "output.hpp"
+#include "record_json.hpp"
+#include "wasm_api.h"
 #include "xml_parser.hpp"
 
 namespace {
@@ -122,6 +126,45 @@ void test_parser_recovers_from_garbage() {
   CHECK(s2.aborted);
 }
 
+void test_incremental_matches_whole_document() {
+  const std::string xml = R"(<?xml version="1.0"?>
+<!DOCTYPE HealthData [ <!ATTLIST Record type CDATA #REQUIRED> <!-- ] > --> ]>
+<HealthData locale="en"><!-- c --><![CDATA[ <x/> ]]>
+ <Record type="A" note="a > b" value='1'/><Record type="B"
+   value="2"><MetadataEntry key="k" value="v"/></Record>
+ <broken <Record type="C"/>
+</HealthData>)";
+
+  Recorder whole;
+  const ParseStats expected = XmlStreamParser{}.parse(xml, whole);
+
+  // Every split point, and a three-way split, must give the same events and counts.
+  for (std::size_t cut = 0; cut <= xml.size(); ++cut) {
+    Recorder r;
+    IncrementalXmlParser p(r);
+    p.feed(std::string_view(xml).substr(0, cut));
+    p.feed(std::string_view(xml).substr(cut));
+    p.finish();
+    CHECK(r.events == whole.events);
+    CHECK(p.stats().errors == expected.errors);
+    CHECK(p.stats().elements == expected.elements);
+  }
+  Recorder bytewise;
+  IncrementalXmlParser p(bytewise);
+  for (const char c : xml) p.feed(std::string_view(&c, 1));
+  p.finish();
+  CHECK(bytewise.events == whole.events);
+
+  // A construct that never ends doesn't make every later chunk rescan it.
+  Recorder r;
+  IncrementalXmlParser endless(r);
+  endless.feed("<HealthData><!-- ");
+  const std::string filler(1 << 20, 'x');
+  for (int i = 0; i < 12; ++i) endless.feed(filler);
+  endless.finish();
+  CHECK(endless.stats().errors >= 1);
+}
+
 void test_decode_entities() {
   CHECK(decode_entities("Itay&apos;s &amp; &lt;Watch&gt;") == "Itay's & <Watch>");
   CHECK(decode_entities("caf&#233; &#x2019;") == "caf\xC3\xA9 \xE2\x80\x99");
@@ -199,6 +242,121 @@ void test_collector_buckets_by_local_hour() {
     }
   }
   CHECK(c.pool_stats().upstream_allocations < c.pool_stats().allocations + 5);
+}
+
+void test_workouts() {
+  const std::string_view xml = R"(<HealthData>
+ <Workout workoutActivityType="HKWorkoutActivityTypeRunning" duration="30" durationUnit="min" sourceName="W"
+   startDate="2026-10-24 07:00:00 +0300" endDate="2026-10-24 07:30:00 +0300">
+  <MetadataEntry key="HKIndoorWorkout" value="1"/>
+  <MetadataEntry key="HKElevationAscended" value="4500 cm"/>
+  <MetadataEntry key="HKAverageMETs" value="9.5 kcal/hr·kg"/>
+  <WorkoutEvent type="x"><MetadataEntry key="HKIndoorWorkout" value="0"/></WorkoutEvent>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierDistanceWalkingRunning" sum="5" unit="km"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierActiveEnergyBurned" sum="1255.2" unit="kJ"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierHeartRate" average="150" minimum="120" maximum="171" unit="count/min"/>
+ </Workout>
+ <Workout workoutActivityType="HKWorkoutActivityTypeTraditionalStrengthTraining" sourceName="W"
+   startDate="2026-10-25 18:00:00 +0300" endDate="2026-10-25 18:45:30 +0300" totalEnergyBurned="200" totalEnergyBurnedUnit="Cal"/>
+ <Workout workoutActivityType="HKWorkoutActivityTypeYoga" startDate="bad" endDate="bad"/>
+</HealthData>)";
+  HealthExportCollector c;
+  XmlStreamParser{}.parse(xml, c);
+  c.finish();
+
+  CHECK(c.stats.workouts_seen == 3);
+  CHECK(c.stats.warnings == 1);
+  CHECK(c.workouts.size() == 2);
+  if (c.workouts.size() != 2) return;
+
+  const WorkoutRecord& run = c.workouts[0];
+  CHECK(run.name == "Indoor Run");  // the nested MetadataEntry belongs to WorkoutEvent, not the workout
+  CHECK(run.duration_sec == 1800);
+  CHECK(near(run.distance_km, 5));
+  CHECK(near(run.avg_speed_kmh, 10));  // derived: no RunningSpeed statistic
+  CHECK(near(run.active_kcal, 300));
+  CHECK(near(run.elevation_up_m, 45));
+  CHECK(near(run.intensity_met, 9.5));
+  CHECK(run.avg_hr == 150 && run.min_hr == 120 && run.max_hr == 171);
+  CHECK(std::isnan(run.step_count));
+  CHECK(run.local_day == days_from_civil(2026, 10, 24));
+
+  const WorkoutRecord& lift = c.workouts[1];
+  CHECK(lift.name == "Traditional Strength Training");
+  CHECK(lift.duration_sec == 2730);  // from the dates
+  CHECK(near(lift.active_kcal, 200));
+  CHECK(std::isnan(lift.distance_km) && std::isnan(lift.avg_speed_kmh));
+
+  std::string json;
+  append_workout_json(json, lift, c.sources);
+  CHECK(json.find(R"("name":"Traditional Strength Training")") != std::string::npos);
+  CHECK(json.find(R"("hrSeries":null})") != std::string::npos);
+}
+
+// ─── C API (the WebAssembly surface) ────────────────────────────────────────
+
+std::string read_file(const char* path) {
+  std::string data;
+  if (std::FILE* f = std::fopen(path, "rb")) {
+    char buf[65536];
+    std::size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) data.append(buf, n);
+    std::fclose(f);
+  }
+  return data;
+}
+
+void test_c_api_matches_whole_parse(const char* sample_path) {
+  const std::string xml = read_file(sample_path);
+  CHECK(!xml.empty());
+  if (xml.empty()) return;
+
+  HealthExportCollector whole;
+  XmlStreamParser{}.parse(xml, whole);
+  whole.finish();
+
+  EztSession* s = ezt_create();
+  // Uneven chunks, so tags and multi-byte characters straddle chunk borders.
+  std::size_t pos = 0;
+  for (std::size_t step = 1; pos < xml.size(); step = step * 7 % 997 + 1) {
+    const std::size_t n = std::min(step, xml.size() - pos);
+    std::memcpy(ezt_input(s, n), xml.data() + pos, n);
+    CHECK(ezt_feed(s, n) == 0);
+    pos += n;
+  }
+  CHECK(ezt_finish(s) == 0);
+  const std::string stats(ezt_output(s), ezt_output_size(s));
+  CHECK(stats.find(R"("recordsRead":)" + std::to_string(whole.stats.records_read)) != std::string::npos);
+  CHECK(ezt_records_read(s) == static_cast<double>(whole.stats.records_read));
+
+  // Paged in twos: the pages joined must equal the whole-document records.
+  const auto paged = [&](int kind) {
+    std::string joined;
+    const std::size_t count = ezt_count(s, kind);
+    for (std::size_t off = 0; off < count; off += 2) {
+      CHECK(ezt_page(s, kind, off, 2) == 0);
+      std::string page(ezt_output(s), ezt_output_size(s));
+      if (!joined.empty()) joined += ',';
+      joined += page.substr(1, page.size() - 2);
+    }
+    return joined;
+  };
+  const auto expected = [](const auto& records, auto append) {
+    std::string joined;
+    for (const auto& r : records) {
+      if (!joined.empty()) joined += ',';
+      append(joined, r);
+    }
+    return joined;
+  };
+  CHECK(paged(0) == expected(whole.samples, [&](std::string& o, const MetricSample& r) { append_sample_json(o, r, whole.sources); }));
+  CHECK(paged(1) == expected(whole.sleep, [&](std::string& o, const SleepSegment& r) { append_sleep_json(o, r, whole.sources); }));
+  CHECK(paged(2) == expected(whole.workouts, [&](std::string& o, const WorkoutRecord& r) { append_workout_json(o, r, whole.sources); }));
+  CHECK(paged(3) == expected(whole.activity, [](std::string& o, const DailyActivity& r) { append_activity_json(o, r); }));
+  CHECK(ezt_count(s, 2) == 2);
+  CHECK(ezt_page(s, 9, 0, 1) == 2);
+  CHECK(ezt_feed(s, 0) == 2);  // finished sessions refuse more input
+  ezt_destroy(s);
 }
 
 // ─── Aggregator ─────────────────────────────────────────────────────────────
@@ -288,14 +446,19 @@ void test_json_primitives() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  // The repo's sample export; build.sh passes its path.
+  const char* sample = argc > 1 ? argv[1] : "../../../scripts/sample-export.xml";
   test_pool_reuses_blocks();
   test_pool_resource_routes_by_size();
   test_parser_handles_export_constructs();
   test_parser_recovers_from_garbage();
+  test_incremental_matches_whole_document();
   test_decode_entities();
   test_dates();
   test_collector_buckets_by_local_hour();
+  test_workouts();
+  test_c_api_matches_whole_parse(sample);
   test_rolling_series();
   test_sleep_transitions();
   test_json_primitives();

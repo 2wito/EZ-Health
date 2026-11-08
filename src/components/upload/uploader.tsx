@@ -7,14 +7,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { countSleepNights, toBatches } from "@/lib/apple-health/batches";
 import { isActiveImport, type ImportJobView } from "@/lib/apple-health/job-view";
-import type { WorkerMessage } from "@/lib/apple-health/parse.worker";
+import type { ParseEngine, WorkerMessage } from "@/lib/apple-health/parse.worker";
 import type { ParseResult } from "@/lib/apple-health/xml-parser";
 import { useI18n } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 type State =
   | { kind: "idle"; error?: string }
-  | { kind: "parsing"; fileName: string; fileBytes: number; phase: "open" | "read"; progress: number | null; recordsRead: number }
+  | {
+      kind: "parsing";
+      fileName: string;
+      fileBytes: number;
+      phase: "open" | "read";
+      progress: number | null;
+      recordsRead: number;
+      engine: ParseEngine | null;
+    }
   | { kind: "saving"; fileName: string; fileBytes: number; sent: number; total: number }
   | { kind: "job"; job: ImportJobView };
 
@@ -70,7 +78,7 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
       return;
     }
     const base = { fileName: file.name, fileBytes: file.size };
-    setState({ kind: "parsing", ...base, phase: "open", progress: null, recordsRead: 0 });
+    setState({ kind: "parsing", ...base, phase: "open", progress: null, recordsRead: 0, engine: null });
 
     worker.current?.terminate();
     const w = new Worker(new URL("../../lib/apple-health/parse.worker.ts", import.meta.url));
@@ -84,6 +92,7 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
           phase: m.phase,
           progress: m.bytesTotal ? m.bytesRead / m.bytesTotal : null,
           recordsRead: m.recordsRead,
+          engine: m.engine,
         });
         return;
       }
@@ -197,7 +206,12 @@ export function Uploader({ activeJob }: { activeJob: ImportJobView | null }) {
         step={state.phase === "open" ? 0 : 1}
         label={state.phase === "open" ? t.upload.opening : t.upload.reading}
         progress={state.phase === "read" ? state.progress : null}
-        detail={state.phase === "open" ? t.upload.openingHint : t.upload.recordsRead(f.number(state.recordsRead), false)}
+        detail={
+          state.phase === "open"
+            ? t.upload.openingHint
+            : t.upload.recordsRead(f.number(state.recordsRead), false) +
+              (state.engine === "wasm" ? ` · ${t.upload.engineWasm}` : "")
+        }
         action={cancelButton}
       />
     );

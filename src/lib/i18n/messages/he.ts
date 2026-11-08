@@ -469,6 +469,7 @@ export const he: Messages = {
     saving: "שומר ללוח שלכם",
     reading: "קורא את רשומות הבריאות",
     opening: "פותח את הקובץ",
+    engineWasm: "מנוע C++‏ (WebAssembly)",
     recordsRead: (n: string, saving: boolean) => `${n} רשומות נקראו${saving ? ", שומר עכשיו" : ""}`,
     dropping: "שחררו כדי לייבא",
     drop: "גררו לכאן את קובץ הייצוא מ־Apple Health",

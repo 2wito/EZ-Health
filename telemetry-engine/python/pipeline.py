@@ -22,9 +22,6 @@ Data goes through the app's API rather than straight into Postgres on purpose:
 the API owns validation, the idempotent bulk upserts and the sleep-night
 rebuild, so the pipeline can't drift from what the dashboards expect.
 
-Workouts aren't converted by the engine yet. Import export.zip on /upload to
-include them (re-importing is safe).
-
 Only the Python standard library is used. Exit codes: 0 ok, 1 usage,
 2 engine failed, 3 API error, 130 interrupted.
 """
@@ -57,7 +54,7 @@ DEFAULT_ENGINE = ENGINE_DIR / "build" / "release" / EXE
 MAX_BATCH_RECORDS = 5_000
 MAX_BATCH_BYTES = 3_000_000
 
-KINDS = ("samples", "sleepStages", "activity")
+KINDS = ("samples", "sleepStages", "workouts", "activity")
 NDJSON_PREFIX = {kind: f'{{"kind":"{kind}","record":' for kind in KINDS}
 
 # Enum order of cpp/include/health_records.hpp.
@@ -176,6 +173,10 @@ EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 SAMPLE = struct.Struct("<BhqddddH")
 SLEEP = struct.Struct("<BhqqiH")
 ACTIVITY = struct.Struct("<idddddd")
+WORKOUT = struct.Struct("<hqqiqH9d")
+WORKOUT_KEYS = ("activeEnergyKcal", "distanceKm", "avgSpeedKmh", "elevationUpM", "stepCount", "intensityMet",
+                "avgHr", "minHr", "maxHr")
+BINARY_VERSION = 2
 
 
 def _read(stream: IO[bytes], n: int) -> bytes:
@@ -202,6 +203,9 @@ def iter_binary(stream: IO[bytes]) -> Iterator[tuple[str, str | dict]]:
     header = _read(stream, 8)
     if header[:4] != b"EZTB":
         raise PipelineError("engine output isn't the EZTB binary format", EXIT_ENGINE)
+    (version,) = struct.unpack("<H", header[4:6])
+    if version != BINARY_VERSION:
+        raise PipelineError(f"engine binary format v{version}, this pipeline reads v{BINARY_VERSION}", EXIT_ENGINE)
     sources: dict[int, str] = {}
     dumps = json.JSONEncoder(separators=(",", ":"), ensure_ascii=False).encode
 
@@ -231,6 +235,15 @@ def iter_binary(stream: IO[bytes]) -> Iterator[tuple[str, str | dict]]:
             day, *values = ACTIVITY.unpack(_read(stream, ACTIVITY.size))
             keys = ("activeEnergyKcal", "activeEnergyGoal", "exerciseMin", "exerciseGoalMin", "standHours", "standGoalHours")
             yield "activity", dumps({"date": iso_day(day), **{k: _num(v) for k, v in zip(keys, values)}})
+        elif t == 0x05:
+            tz, start, end, day, duration, sid, *values = WORKOUT.unpack(_read(stream, WORKOUT.size))
+            (length,) = struct.unpack("<H", _read(stream, 2))
+            name = _read(stream, length).decode("utf-8", "replace")
+            yield "workouts", dumps({
+                "externalId": None, "name": name, "source": sources[sid],
+                "start": iso_ms(start), "end": iso_ms(end), "tzOffsetMin": tz, "localDate": iso_day(day),
+                "durationSec": duration, **{k: _num(v) for k, v in zip(WORKOUT_KEYS, values)}, "hrSeries": None,
+            })
         elif t == 0xFF:
             (length,) = struct.unpack("<I", _read(stream, 4))
             yield "summary", json.loads(_read(stream, length))
@@ -311,9 +324,8 @@ def cmd_import(args: argparse.Namespace, engine: Engine, xml: Path) -> int:
     source = Path(args.input)
     pre = engine.summary(xml)
     log(f"{pre['recordsRead']:,} records ({pre['counts']['samples']:,} samples, "
-        f"{pre['counts']['sleepStages']:,} sleep segments) in {pre['timings']['totalMs']:.0f} ms")
-    if pre.get("workoutsSeen"):
-        log(f"note: {pre['workoutsSeen']} workouts are not converted by the engine; import the file on /upload to add them")
+        f"{pre['counts']['sleepStages']:,} sleep segments, {pre['counts']['workouts']:,} workouts) "
+        f"in {pre['timings']['totalMs']:.0f} ms")
 
     api = None if args.dry_run else ApiClient(args.api_url)
     job_id = None
@@ -359,7 +371,7 @@ def cmd_import(args: argparse.Namespace, engine: Engine, xml: Path) -> int:
             api.post(f"/api/import/{job_id}/finish", {
                 "status": "DONE",
                 "sleepNights": counts["sleepNights"],
-                "workoutsSaved": 0,
+                "workoutsSaved": counts["workouts"],
                 "activityDays": counts["activityDays"],
             })
     except BaseException as e:

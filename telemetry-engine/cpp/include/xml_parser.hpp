@@ -2,12 +2,17 @@
 
 // Zero-copy streaming XML parser for Apple Health export.xml.
 //
-// The file is memory-mapped and scanned once, front to back. Element names and
-// attribute values are std::string_views into the mapping: nothing is copied
-// and no DOM is built. The handler sees each element as it is read and keeps
-// only what it needs. Pages already parsed can be dropped from memory through
-// ParseOptions::on_progress + MappedFile::release_before, so resident memory
-// stays flat even for multi-GB exports.
+// Two ways in:
+//   - XmlStreamParser::parse(document): one pass over a complete document,
+//     typically a memory-mapped file (see mapped_file.hpp).
+//   - IncrementalXmlParser::feed(chunk): the same scanner over a stream of
+//     chunks, for when the bytes arrive piece by piece (the browser build).
+//     A tag cut off at the end of a chunk is carried over to the next one.
+//
+// Element names and attribute values are std::string_views into the input:
+// nothing is copied and no DOM is built. The handler sees each element as it
+// is read and copies whatever it wants to keep. Views are only valid during
+// the callback.
 //
 // Scope: the subset of XML that Health exports use. Elements and quoted
 // attributes are parsed; the DOCTYPE (including its internal subset), comments,
@@ -38,8 +43,7 @@ struct Element {
   [[nodiscard]] bool has(std::string_view key) const noexcept;
 };
 
-/// Receives elements in document order. Views are valid for the life of the
-/// mapped document, not only during the callback.
+/// Receives elements in document order.
 class XmlHandler {
  public:
   virtual ~XmlHandler() = default;
@@ -50,7 +54,7 @@ class XmlHandler {
 struct ParseOptions {
   /// Malformed constructs tolerated before giving up (real exports have a few).
   std::uint64_t max_errors = 10'000;
-  /// Bytes between on_progress calls.
+  /// Bytes between on_progress calls (whole-document parsing only).
   std::size_t progress_interval = std::size_t{64} << 20;
   /// Called with the offset parsed so far.
   std::function<void(std::size_t offset)> on_progress;
@@ -63,10 +67,10 @@ struct ParseStats {
   bool aborted = false;  // more than max_errors
 };
 
+inline constexpr std::size_t kMaxAttributes = 32;
+
 class XmlStreamParser {
  public:
-  static constexpr std::size_t kMaxAttributes = 32;
-
   explicit XmlStreamParser(ParseOptions options = {});
   ParseStats parse(std::string_view document, XmlHandler& handler);
 
@@ -74,26 +78,21 @@ class XmlStreamParser {
   ParseOptions options_;
 };
 
-/// Read-only memory mapping of a whole file (mmap on POSIX, MapViewOfFile on Windows).
-class MappedFile {
+class IncrementalXmlParser {
  public:
-  /// Throws std::system_error when the file can't be opened or mapped.
-  explicit MappedFile(const std::string& path);
-  ~MappedFile();
+  explicit IncrementalXmlParser(XmlHandler& handler, ParseOptions options = {});
 
-  MappedFile(const MappedFile&) = delete;
-  MappedFile& operator=(const MappedFile&) = delete;
-
-  [[nodiscard]] std::string_view view() const noexcept { return {data_, size_}; }
-  [[nodiscard]] std::size_t size() const noexcept { return size_; }
-
-  /// Tells the OS the pages before `offset` won't be needed again (POSIX only;
-  /// a no-op elsewhere). They're re-read from disk if something touches them.
-  void release_before(std::size_t offset) noexcept;
+  /// Parses every complete construct in carry-over + chunk. False once aborted.
+  bool feed(std::string_view chunk);
+  /// Parses what's left; an unterminated construct there counts as an error.
+  bool finish();
+  [[nodiscard]] const ParseStats& stats() const noexcept { return stats_; }
 
  private:
-  const char* data_ = nullptr;
-  std::size_t size_ = 0;
+  XmlHandler& handler_;
+  ParseOptions options_;
+  ParseStats stats_;
+  std::string carry_;
 };
 
 /// Decodes the five predefined entities and numeric character references (as UTF-8).

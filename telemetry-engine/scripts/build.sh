@@ -4,6 +4,7 @@
 #   scripts/build.sh                 release build (-O3) in build/release
 #   scripts/build.sh --debug         debug build in build/debug
 #   scripts/build.sh --asan          AddressSanitizer + UBSan build in build/asan
+#   scripts/build.sh --wasm          WebAssembly module for the browser → public/wasm/ez-telemetry.mjs
 #   scripts/build.sh --clean         remove the build directory first
 #   scripts/build.sh --werror        treat warnings as errors
 #   scripts/build.sh --jobs 8        parallel compile jobs (default: all cores)
@@ -11,7 +12,8 @@
 #
 # Uses CMake when it's installed. Without CMake it compiles the same sources
 # with the same flags directly through $CXX (default g++), so the engine can be
-# built on a machine that only has a compiler.
+# built on a machine that only has a compiler. --wasm needs the Emscripten SDK
+# (em++ on the PATH); the module is committed, so the web app's build doesn't.
 #
 # Exit codes: 0 ok, 1 bad usage, 2 build failed, 3 verification failed.
 
@@ -27,13 +29,14 @@ verify=1
 werror=0
 jobs="$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
-usage() { sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --release) mode="release" ;;
     --debug) mode="debug" ;;
     --asan) mode="asan" ;;
+    --wasm) mode="wasm" ;;
     --clean) clean=1 ;;
     --werror) werror=1 ;;
     --no-verify) verify=0 ;;
@@ -62,6 +65,36 @@ fi
 mkdir -p "$BUILD_DIR"
 
 started=$(date +%s)
+
+# ─── WebAssembly ──────────────────────────────────────────────────────────────
+
+if [[ "$mode" == wasm ]]; then
+  WASM_OUT="$REPO_DIR/public/wasm/ez-telemetry.mjs"
+  command -v em++ >/dev/null 2>&1 ||
+    fail "em++ not found: install the Emscripten SDK and run 'source emsdk_env.sh' (see telemetry-engine/README.md)"
+  log "compiling to WebAssembly with $(em++ --version | head -1)"
+  mkdir -p "$(dirname "$WASM_OUT")"
+
+  # One self-contained ES module (the .wasm is embedded), loadable in a browser
+  # worker and in Node for the tests. Only the parser and the record encoders go
+  # in: the aggregator's threads and the CLI's file mapping stay native.
+  wasm_flags=(-std=c++20 -O3 -Wall -Wextra -Wpedantic -Wshadow -I"$CPP_DIR/include")
+  [[ $werror -eq 1 ]] && wasm_flags+=(-Werror)
+  em++ "${wasm_flags[@]}" \
+    "$CPP_DIR/src/memory_pool.cpp" "$CPP_DIR/src/xml_parser.cpp" "$CPP_DIR/src/health_records.cpp" \
+    "$CPP_DIR/src/record_json.cpp" "$CPP_DIR/src/wasm_api.cpp" \
+    -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createEzTelemetry \
+    -sENVIRONMENT=web,worker,node -sSINGLE_FILE=1 -sFILESYSTEM=0 \
+    -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=32MB -sMAXIMUM_MEMORY=2GB \
+    -sEXPORTED_FUNCTIONS=_ezt_create,_ezt_destroy,_ezt_input,_ezt_feed,_ezt_records_read,_ezt_finish,_ezt_count,_ezt_page,_ezt_output,_ezt_output_size \
+    -sEXPORTED_RUNTIME_METHODS=HEAPU8 \
+    -o "$WASM_OUT" || fail "WebAssembly build failed"
+  log "wrote $WASM_OUT ($(( $(wc -c <"$WASM_OUT") / 1024 )) KB) in $(( $(date +%s) - started ))s"
+  log "check it against the TypeScript parser with: npx vitest run src/lib/apple-health/wasm-engine.test.ts"
+  exit 0
+fi
+
+# ─── Native ───────────────────────────────────────────────────────────────────
 
 if command -v cmake >/dev/null 2>&1; then
   case "$mode" in
@@ -128,13 +161,13 @@ version="$("$BIN" --version)" || fail "$BIN --version failed" 3
 log "  $version"
 
 if [[ -x "$TESTS" ]]; then
-  "$TESTS" || fail "unit tests failed" 3
+  "$TESTS" "$REPO_DIR/scripts/sample-export.xml" || fail "unit tests failed" 3
 fi
 
 sample="$REPO_DIR/scripts/sample-export.xml"
 if [[ -f "$sample" ]]; then
   out="$("$BIN" --format json "$sample")" || fail "smoke run on $sample exited with $?" 3
-  records=$(grep -c '"kind":"samples"\|"kind":"sleepStages"\|"kind":"activity"' <<<"$out" || true)
+  records=$(grep -cE '^\{"kind":"(samples|sleepStages|workouts|activity)"' <<<"$out" || true)
   summary=$(grep -c '"kind":"summary"' <<<"$out" || true)
   [[ "$records" -gt 0 && "$summary" -eq 1 ]] || fail "smoke run produced $records records and $summary summaries" 3
   log "  smoke run: $records records from $(basename "$sample")"

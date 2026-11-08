@@ -10,7 +10,7 @@
 //   - resting HR, walking HR, HRV, VO2 max     → kept per reading
 //   - sleep analysis                           → stage segments, keyed by night
 //   - <ActivitySummary>                        → daily ring totals
-// Workouts are counted but not converted yet (the web importer handles them).
+//   - <Workout> (+ its MetadataEntry / WorkoutStatistics children) → workouts
 
 #include <cmath>
 #include <cstdint>
@@ -20,6 +20,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "memory_pool.hpp"
@@ -114,6 +115,25 @@ struct SleepSegment {
   std::uint16_t source;
 };
 
+struct WorkoutRecord {
+  std::string name;  // as the Health app shows it, e.g. "Outdoor Run"
+  std::int64_t start_ms;
+  std::int64_t end_ms;
+  std::int32_t local_day;  // local date of the start
+  std::int64_t duration_sec;
+  double active_kcal;
+  double distance_km;
+  double avg_speed_kmh;
+  double elevation_up_m;
+  double step_count;
+  double intensity_met;
+  double avg_hr;
+  double min_hr;
+  double max_hr;
+  std::int16_t tz_min;
+  std::uint16_t source;
+};
+
 struct DailyActivity {
   std::int32_t day;
   double active_kcal;
@@ -144,7 +164,7 @@ struct CollectorStats {
   std::uint64_t records_read = 0;
   std::uint64_t records_skipped = 0;  // types we don't track (dietary, audio exposure, ...)
   std::uint64_t warnings = 0;         // unparseable values or dates
-  std::uint64_t workouts_seen = 0;    // not converted by this engine yet
+  std::uint64_t workouts_seen = 0;    // <Workout> elements, converted or not
   std::int64_t data_from_ms = std::numeric_limits<std::int64_t>::max();
   std::int64_t data_to_ms = std::numeric_limits<std::int64_t>::min();
 
@@ -159,7 +179,7 @@ class HealthExportCollector final : public XmlHandler {
   HealthExportCollector();
 
   void on_open(const Element& element) override;
-  void on_close(std::string_view) override {}
+  void on_close(std::string_view name) override;
 
   /// Turns the open hourly buckets into samples. Call once, after parsing.
   void finish();
@@ -171,11 +191,23 @@ class HealthExportCollector final : public XmlHandler {
 
   std::vector<MetricSample> samples;
   std::vector<SleepSegment> sleep;
+  std::vector<WorkoutRecord> workouts;
   std::vector<DailyActivity> activity;
   SourceTable sources;
   CollectorStats stats;
 
+  /// Owned key/value pairs in document order (element views don't outlive a callback).
+  using Fields = std::vector<std::pair<std::string, std::string>>;
+
  private:
+  /// A <Workout> whose closing tag hasn't been seen yet.
+  struct OpenWorkout {
+    Fields attrs;
+    Fields meta;                                       // MetadataEntry key → value
+    std::vector<std::pair<std::string, Fields>> stats;  // WorkoutStatistics type → attributes, first-seen order
+    int depth = 0;
+  };
+
   struct BucketKey {
     std::int64_t hour_start_ms;
     std::uint16_t source;
@@ -196,10 +228,13 @@ class HealthExportCollector final : public XmlHandler {
   void on_record(const Element& e);
   void on_sleep(const Element& e);
   void on_activity_summary(const Element& e);
+  void close_workout();
   void track(std::int64_t utc_ms) noexcept;
 
   PoolResource pool_;  // must outlive buckets_
   std::pmr::unordered_map<BucketKey, Bucket, BucketKeyHash> buckets_;
+  std::optional<OpenWorkout> workout_;
+  int depth_ = 0;  // elements currently open
   bool saw_root_ = false;
 };
 
