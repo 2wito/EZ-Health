@@ -19,6 +19,8 @@ const eslintConfig = [
       "build/**",
       "next-env.d.ts",
       "src/generated/**",
+      // Emscripten output, built from telemetry-engine/ (scripts/build.sh --wasm).
+      "public/wasm/**",
     ],
   },
 ];

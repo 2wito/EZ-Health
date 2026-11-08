@@ -44,9 +44,12 @@ endif()
 add_library(ezt_core STATIC
   src/memory_pool.cpp
   src/xml_parser.cpp
+  src/mapped_file.cpp
   src/health_records.cpp
+  src/record_json.cpp
   src/aggregator.cpp
-  src/output.cpp)
+  src/output.cpp
+  src/wasm_api.cpp)
 target_include_directories(ezt_core PUBLIC include)
 target_link_libraries(ezt_core PUBLIC ezt_options Threads::Threads)
 
@@ -57,7 +60,7 @@ if(EZT_BUILD_TESTS)
   enable_testing()
   add_executable(engine_tests tests/engine_tests.cpp)
   target_link_libraries(engine_tests PRIVATE ezt_core)
-  add_test(NAME engine_tests COMMAND engine_tests)
+  add_test(NAME engine_tests COMMAND engine_tests ${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/sample-export.xml)
 endif()
 
 install(TARGETS ez-telemetry RUNTIME DESTINATION bin)

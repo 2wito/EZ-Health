@@ -3,24 +3,6 @@
 #include <array>
 #include <charconv>
 #include <cstring>
-#include <system_error>
-
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-
-#include <filesystem>
-#else
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
 
 namespace ezt {
 
@@ -40,7 +22,7 @@ bool Element::has(std::string_view key) const noexcept {
   return false;
 }
 
-// ─── Parser ─────────────────────────────────────────────────────────────────
+// ─── Scanner ────────────────────────────────────────────────────────────────
 
 namespace {
 
@@ -52,6 +34,7 @@ const char* find_char(const char* p, const char* end, char c) noexcept {
 
 /// Position just past `terminator`, or nullptr when it never appears.
 const char* skip_past(const char* p, const char* end, std::string_view terminator) noexcept {
+  if (p >= end) return nullptr;
   const std::string_view rest(p, static_cast<std::size_t>(end - p));
   const std::size_t at = rest.find(terminator);
   return at == std::string_view::npos ? nullptr : p + at + terminator.size();
@@ -61,10 +44,17 @@ bool starts_with(const char* p, const char* end, std::string_view prefix) noexce
   return static_cast<std::size_t>(end - p) >= prefix.size() && std::memcmp(p, prefix.data(), prefix.size()) == 0;
 }
 
+/// True when [p, end) could still become `prefix` once more bytes arrive.
+bool could_start_with(const char* p, const char* end, std::string_view prefix) noexcept {
+  const auto n = static_cast<std::size_t>(end - p);
+  return n < prefix.size() && std::memcmp(p, prefix.data(), n) == 0;
+}
+
 /// p points at the '!' of "<!...". Returns the position after the construct, or nullptr.
 const char* skip_declaration(const char* p, const char* end) noexcept {
   if (starts_with(p, end, "!--")) return skip_past(p + 3, end, "-->");
   if (starts_with(p, end, "![CDATA[")) return skip_past(p + 8, end, "]]>");
+  if (could_start_with(p, end, "!--") || could_start_with(p, end, "![CDATA[")) return nullptr;
 
   // <!DOCTYPE ...> with an optional [internal subset] that contains '>' itself.
   int depth = 0;
@@ -94,49 +84,49 @@ std::string_view trim(std::string_view s) noexcept {
   return s;
 }
 
-}  // namespace
-
-XmlStreamParser::XmlStreamParser(ParseOptions options) : options_(std::move(options)) {}
-
-ParseStats XmlStreamParser::parse(std::string_view document, XmlHandler& handler) {
-  ParseStats stats;
-  stats.bytes = document.size();
-
-  const char* const begin = document.data();
-  const char* const end = begin + document.size();
+/// Scans `doc` and returns how many bytes were consumed.
+///
+/// With final == false, a construct cut off by the end of the buffer is left
+/// unconsumed (the return value points at its '<') so the caller can retry once
+/// more bytes arrive. With final == true it counts as an error instead.
+std::size_t scan(std::string_view doc, XmlHandler& handler, const ParseOptions& options, ParseStats& stats,
+                 bool final, std::size_t base_offset) {
+  const char* const begin = doc.data();
+  const char* const end = begin + doc.size();
   const char* p = begin;
   std::array<Attribute, kMaxAttributes> attrs{};
-  std::size_t next_progress = options_.progress_interval;
+  std::size_t next_progress = options.progress_interval;
 
+  const auto consumed = [&](const char* at) { return static_cast<std::size_t>(at - begin); };
   // Counts a malformed construct; false once there have been too many.
-  auto fail = [&]() {
-    if (++stats.errors > options_.max_errors) {
-      stats.aborted = true;
-      return false;
-    }
-    return true;
+  const auto fail = [&](std::uint64_t n = 1) {
+    stats.errors += n;
+    if (stats.errors > options.max_errors) stats.aborted = true;
+    return !stats.aborted;
   };
 
   while (p < end) {
     const char* lt = find_char(p, end, '<');
-    if (lt == nullptr) break;
+    if (lt == nullptr) return doc.size();  // trailing text: nothing to keep
     p = lt + 1;
     if (p >= end) {
+      if (!final) return consumed(lt);
       fail();
-      break;
+      return doc.size();
     }
 
-    if (options_.on_progress && static_cast<std::size_t>(p - begin) >= next_progress) {
-      options_.on_progress(static_cast<std::size_t>(p - begin));
-      next_progress += options_.progress_interval;
+    if (options.on_progress && base_offset + consumed(p) >= next_progress) {
+      options.on_progress(base_offset + consumed(p));
+      next_progress += options.progress_interval;
     }
 
     const char c = *p;
     if (c == '?' || c == '!') {
       const char* after = c == '?' ? skip_past(p + 1, end, "?>") : skip_declaration(p, end);
       if (after == nullptr) {
+        if (!final) return consumed(lt);
         fail();
-        break;
+        return doc.size();
       }
       p = after;
       continue;
@@ -145,8 +135,9 @@ ParseStats XmlStreamParser::parse(std::string_view document, XmlHandler& handler
     if (c == '/') {
       const char* gt = find_char(p + 1, end, '>');
       if (gt == nullptr) {
+        if (!final) return consumed(lt);
         fail();
-        break;
+        return doc.size();
       }
       handler.on_close(trim(std::string_view(p + 1, static_cast<std::size_t>(gt - p - 1))));
       p = gt + 1;
@@ -159,12 +150,15 @@ ParseStats XmlStreamParser::parse(std::string_view document, XmlHandler& handler
     const std::string_view name(p, static_cast<std::size_t>(q - p));
 
     std::size_t count = 0;
+    std::uint64_t excess = 0;  // attributes beyond kMaxAttributes, reported once the tag is complete
     bool self_closing = false;
     bool ok = !name.empty();
+    bool truncated = false;  // ran out of input rather than hitting bad syntax
     while (ok) {
       while (q < end && is_space(*q)) ++q;
       if (q >= end) {
         ok = false;
+        truncated = true;
         break;
       }
       if (*q == '>') {
@@ -172,7 +166,10 @@ ParseStats XmlStreamParser::parse(std::string_view document, XmlHandler& handler
         break;
       }
       if (*q == '/') {
-        if (q + 1 < end && q[1] == '>') {
+        if (q + 1 >= end) {
+          ok = false;
+          truncated = true;
+        } else if (q[1] == '>') {
           self_closing = true;
           q += 2;
         } else {
@@ -185,13 +182,23 @@ ParseStats XmlStreamParser::parse(std::string_view document, XmlHandler& handler
       while (q < end && *q != '=' && !is_space(*q) && *q != '>' && *q != '/') ++q;
       const std::string_view attr_name(attr_begin, static_cast<std::size_t>(q - attr_begin));
       while (q < end && is_space(*q)) ++q;
-      if (attr_name.empty() || q >= end || *q != '=') {
+      if (q >= end) {
+        ok = false;
+        truncated = true;
+        break;
+      }
+      if (attr_name.empty() || *q != '=') {
         ok = false;
         break;
       }
       ++q;
       while (q < end && is_space(*q)) ++q;
-      if (q >= end || (*q != '"' && *q != '\'')) {
+      if (q >= end) {
+        ok = false;
+        truncated = true;
+        break;
+      }
+      if (*q != '"' && *q != '\'') {
         ok = false;
         break;
       }
@@ -199,30 +206,87 @@ ParseStats XmlStreamParser::parse(std::string_view document, XmlHandler& handler
       const char* close = find_char(q, end, quote);
       if (close == nullptr) {
         ok = false;
+        truncated = true;
         break;
       }
       if (count < kMaxAttributes) {
         attrs[count++] = Attribute{attr_name, std::string_view(q, static_cast<std::size_t>(close - q))};
-      } else if (!fail()) {
-        return stats;
+      } else {
+        ++excess;
       }
       q = close + 1;
     }
+    if (name.empty() && q >= end) truncated = true;
 
     if (!ok) {
-      if (!fail()) return stats;
+      if (truncated && !final) return consumed(lt);
       // Resynchronise on the end of this tag.
       const char* gt = find_char(q < end ? q : end, end, '>');
+      if (gt == nullptr && !final) return consumed(lt);
+      if (!fail()) return consumed(gt == nullptr ? end : gt + 1);
       p = gt == nullptr ? end : gt + 1;
       continue;
     }
 
+    if (excess > 0 && !fail(excess)) return consumed(q);
     ++stats.elements;
     handler.on_open(Element{name, std::span<const Attribute>(attrs.data(), count)});
     if (self_closing) handler.on_close(name);
     p = q;
   }
+  return consumed(p);
+}
+
+}  // namespace
+
+// ─── Whole-document parser ──────────────────────────────────────────────────
+
+XmlStreamParser::XmlStreamParser(ParseOptions options) : options_(std::move(options)) {}
+
+ParseStats XmlStreamParser::parse(std::string_view document, XmlHandler& handler) {
+  ParseStats stats;
+  stats.bytes = document.size();
+  scan(document, handler, options_, stats, /*final=*/true, 0);
   return stats;
+}
+
+// ─── Incremental parser ─────────────────────────────────────────────────────
+
+IncrementalXmlParser::IncrementalXmlParser(XmlHandler& handler, ParseOptions options)
+    : handler_(handler), options_(std::move(options)) {
+  options_.on_progress = nullptr;  // offsets aren't meaningful across chunks
+}
+
+bool IncrementalXmlParser::feed(std::string_view chunk) {
+  if (stats_.aborted) return false;
+  stats_.bytes += chunk.size();
+
+  if (carry_.empty()) {
+    // Common case: parse the caller's buffer in place, keep only an unfinished tail.
+    const std::size_t used = scan(chunk, handler_, options_, stats_, false, 0);
+    carry_.assign(chunk.substr(used));
+  } else {
+    carry_.append(chunk);
+    const std::size_t used = scan(carry_, handler_, options_, stats_, false, 0);
+    carry_.erase(0, used);
+  }
+
+  // A real tag is a few hundred bytes. A carry-over this large is an
+  // unterminated construct; rescanning it on every chunk would be quadratic.
+  constexpr std::size_t kMaxCarry = std::size_t{8} << 20;
+  if (carry_.size() > kMaxCarry) {
+    if (++stats_.errors > options_.max_errors) stats_.aborted = true;
+    carry_.clear();
+  }
+  return !stats_.aborted;
+}
+
+bool IncrementalXmlParser::finish() {
+  if (!stats_.aborted && !carry_.empty()) {
+    scan(carry_, handler_, options_, stats_, true, 0);
+    carry_.clear();
+  }
+  return !stats_.aborted;
 }
 
 // ─── Entities ───────────────────────────────────────────────────────────────
@@ -286,7 +350,9 @@ std::string decode_entities(std::string_view raw) {
       const std::string_view digits = entity.substr(hex ? 2 : 1);
       std::uint32_t cp = 0;
       const auto [ptr, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), cp, hex ? 16 : 10);
-      decoded = ec == std::errc{} && ptr == digits.data() + digits.size() && !digits.empty() && cp <= 0x10FFFF;
+      // Surrogates aren't characters: decoding one would produce invalid UTF-8.
+      decoded = ec == std::errc{} && ptr == digits.data() + digits.size() && !digits.empty() && cp <= 0x10FFFF &&
+                (cp < 0xD800 || cp > 0xDFFF);
       if (decoded) append_utf8(out, static_cast<char32_t>(cp));
     } else {
       decoded = false;
@@ -301,90 +367,5 @@ std::string decode_entities(std::string_view raw) {
   }
   return out;
 }
-
-// ─── MappedFile ─────────────────────────────────────────────────────────────
-
-#ifdef _WIN32
-
-MappedFile::MappedFile(const std::string& path) {
-  const std::filesystem::path fs_path(std::u8string(reinterpret_cast<const char8_t*>(path.data()), path.size()));
-  HANDLE file = CreateFileW(fs_path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                            FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-  if (file == INVALID_HANDLE_VALUE) {
-    throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "open " + path);
-  }
-  LARGE_INTEGER size{};
-  if (!GetFileSizeEx(file, &size)) {
-    const auto err = static_cast<int>(GetLastError());
-    CloseHandle(file);
-    throw std::system_error(err, std::system_category(), "stat " + path);
-  }
-  if (size.QuadPart == 0) {
-    CloseHandle(file);
-    return;
-  }
-  HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READONLY, 0, 0, nullptr);
-  CloseHandle(file);
-  if (mapping == nullptr) {
-    throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "map " + path);
-  }
-  void* view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
-  const auto err = static_cast<int>(GetLastError());
-  CloseHandle(mapping);
-  if (view == nullptr) throw std::system_error(err, std::system_category(), "map " + path);
-  data_ = static_cast<const char*>(view);
-  size_ = static_cast<std::size_t>(size.QuadPart);
-}
-
-MappedFile::~MappedFile() {
-  if (data_ != nullptr) UnmapViewOfFile(data_);
-}
-
-void MappedFile::release_before(std::size_t) noexcept {}
-
-#else
-
-MappedFile::MappedFile(const std::string& path) {
-  const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
-  if (fd < 0) throw std::system_error(errno, std::generic_category(), "open " + path);
-
-  struct stat st{};
-  if (::fstat(fd, &st) != 0) {
-    const int err = errno;
-    ::close(fd);
-    throw std::system_error(err, std::generic_category(), "stat " + path);
-  }
-  if (!S_ISREG(st.st_mode)) {
-    ::close(fd);
-    throw std::system_error(EINVAL, std::generic_category(), path + " is not a regular file");
-  }
-  if (st.st_size == 0) {
-    ::close(fd);
-    return;
-  }
-
-  const auto size = static_cast<std::size_t>(st.st_size);
-  void* mapped = ::mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
-  const int err = errno;
-  ::close(fd);  // the mapping keeps the file referenced
-  if (mapped == MAP_FAILED) throw std::system_error(err, std::generic_category(), "mmap " + path);
-
-  ::madvise(mapped, size, MADV_SEQUENTIAL);
-  data_ = static_cast<const char*>(mapped);
-  size_ = size;
-}
-
-MappedFile::~MappedFile() {
-  if (data_ != nullptr) ::munmap(const_cast<char*>(data_), size_);
-}
-
-void MappedFile::release_before(std::size_t offset) noexcept {
-  if (data_ == nullptr) return;
-  const auto page = static_cast<std::size_t>(::sysconf(_SC_PAGESIZE));
-  const std::size_t length = (offset < size_ ? offset : size_) / page * page;
-  if (length > 0) ::madvise(const_cast<char*>(data_), length, MADV_DONTNEED);
-}
-
-#endif
 
 }  // namespace ezt

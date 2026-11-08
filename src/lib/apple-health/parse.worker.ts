@@ -1,15 +1,28 @@
 import JSZip from "jszip";
+import { WasmHealthParser, type EngineFactory } from "./wasm-engine";
 import { AppleHealthXmlParser, NotAHealthExportError, type ParseResult } from "./xml-parser";
 
-// Parses export.zip / export.xml in the browser, off the main thread, with the
-// same parser the server uses. Only the compact parsed records leave the
-// device, in small batches, so the upload never hits a host's body limit.
+// Parses export.zip / export.xml in the browser, off the main thread. Only the
+// compact parsed records leave the device, in small batches, so the upload
+// never hits a host's body limit.
+//
+// The parser is the C++ engine compiled to WebAssembly (telemetry-engine/,
+// served from public/wasm). If it can't load, or fails partway, the same file
+// is parsed again with the TypeScript parser, which produces identical records.
 
 export type ParseErrorCode = "damaged" | "noXml" | "notExport" | "empty" | "generic";
+export type ParseEngine = "wasm" | "js";
 
 export type WorkerMessage =
-  | { type: "progress"; phase: "open" | "read"; bytesRead: number; bytesTotal: number; recordsRead: number }
-  | { type: "done"; result: ParseResult; bytesTotal: number }
+  | {
+      type: "progress";
+      phase: "open" | "read";
+      bytesRead: number;
+      bytesTotal: number;
+      recordsRead: number;
+      engine: ParseEngine | null;
+    }
+  | { type: "done"; result: ParseResult; bytesTotal: number; engine: ParseEngine }
   | { type: "error"; code: ParseErrorCode };
 
 // tsconfig has the DOM lib, not the worker one; this is the slice of the worker scope we use.
@@ -25,27 +38,98 @@ class ParseFailure extends Error {
   }
 }
 
-scope.onmessage = async (e) => {
-  try {
-    post({ type: "progress", phase: "open", bytesRead: 0, bytesTotal: 0, recordsRead: 0 });
-    const { chunks, bytesTotal } = await openExportXml(e.data.file);
+/** A parser fed raw export.xml bytes. */
+interface ChunkParser {
+  readonly engine: ParseEngine;
+  readonly recordsRead: number;
+  write(chunk: Uint8Array): void;
+  finish(): ParseResult;
+  dispose(): void;
+}
 
-    const parser = new AppleHealthXmlParser();
-    const decoder = new TextDecoder(); // { stream: true } below keeps multi-byte characters intact across chunks
+// Served as a static file and loaded at runtime, so the bundler leaves it alone.
+const WASM_ENGINE_URL = "/wasm/ez-telemetry.mjs";
+let wasmFactory: Promise<EngineFactory> | null = null;
+
+async function wasmParser(): Promise<ChunkParser> {
+  wasmFactory ??= import(/* webpackIgnore: true */ /* turbopackIgnore: true */ WASM_ENGINE_URL).then(
+    (m: { default: EngineFactory }) => m.default,
+  );
+  const parser = new WasmHealthParser(await (await wasmFactory)());
+  return {
+    engine: "wasm",
+    get recordsRead() {
+      return parser.recordsRead;
+    },
+    write: (chunk) => parser.write(chunk),
+    finish: () => parser.finish(),
+    dispose: () => parser.dispose(),
+  };
+}
+
+function jsParser(): ChunkParser {
+  const parser = new AppleHealthXmlParser();
+  const decoder = new TextDecoder(); // { stream: true } keeps multi-byte characters intact across chunks
+  return {
+    engine: "js",
+    get recordsRead() {
+      return parser.recordsRead;
+    },
+    write: (chunk) => parser.write(decoder.decode(chunk, { stream: true })),
+    finish: () => {
+      parser.write(decoder.decode());
+      return parser.finish();
+    },
+    dispose: () => {},
+  };
+}
+
+async function parseFile(file: File, parser: ChunkParser): Promise<{ result: ParseResult; bytesTotal: number }> {
+  try {
+    const { chunks, bytesTotal } = await openExportXml(file);
     let bytesRead = 0;
     let lastReport = 0;
     for await (const chunk of chunks) {
       bytesRead += chunk.byteLength;
-      parser.write(decoder.decode(chunk, { stream: true }));
+      parser.write(chunk);
       if (Date.now() - lastReport > 250) {
         lastReport = Date.now();
-        post({ type: "progress", phase: "read", bytesRead, bytesTotal, recordsRead: parser.recordsRead });
+        post({ type: "progress", phase: "read", bytesRead, bytesTotal, recordsRead: parser.recordsRead, engine: parser.engine });
       }
     }
-    parser.write(decoder.decode());
-    const result = parser.finish();
+    return { result: parser.finish(), bytesTotal: bytesTotal || bytesRead };
+  } finally {
+    parser.dispose();
+  }
+}
+
+scope.onmessage = async (e) => {
+  const file = e.data.file;
+  try {
+    post({ type: "progress", phase: "open", bytesRead: 0, bytesTotal: 0, recordsRead: 0, engine: null });
+
+    let parser: ChunkParser;
+    try {
+      parser = await wasmParser();
+    } catch (err) {
+      console.warn("[import] WebAssembly engine unavailable, using the JavaScript parser:", err);
+      parser = jsParser();
+    }
+
+    let parsed: { result: ParseResult; bytesTotal: number };
+    try {
+      parsed = await parseFile(file, parser);
+    } catch (err) {
+      // Bad input fails the same way in both parsers; anything else in the engine gets a second try in JS.
+      if (parser.engine !== "wasm" || err instanceof ParseFailure || err instanceof NotAHealthExportError) throw err;
+      console.warn("[import] WebAssembly engine failed, parsing again with the JavaScript parser:", err);
+      parser = jsParser();
+      parsed = await parseFile(file, parser);
+    }
+
+    const { result, bytesTotal } = parsed;
     if (result.recordsRead === 0 && result.workouts.length === 0) throw new ParseFailure("empty");
-    post({ type: "done", result, bytesTotal: bytesTotal || bytesRead });
+    post({ type: "done", result, bytesTotal, engine: parser.engine });
   } catch (err) {
     if (!(err instanceof ParseFailure)) console.error("[import] parse failed:", err);
     post({

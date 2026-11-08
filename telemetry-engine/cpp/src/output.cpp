@@ -36,169 +36,35 @@ void Sink::flush() {
   if (failed || std::fflush(file_) != 0) throw std::runtime_error("write failed (output closed?)");
 }
 
-// ─── JSON primitives ────────────────────────────────────────────────────────
+// ─── NDJSON records ─────────────────────────────────────────────────────────
 
 namespace {
 
-void put_digits(std::string& out, std::int64_t value, int width) {
-  char buf[24];
-  int n = 0;
-  auto v = static_cast<std::uint64_t>(value < 0 ? -value : value);
-  do {
-    buf[n++] = static_cast<char>('0' + v % 10);
-    v /= 10;
-  } while (v > 0);
-  if (value < 0) out += '-';
-  for (int i = n; i < width; ++i) out += '0';
-  while (n > 0) out += buf[--n];
-}
-
-void append_civil(std::string& out, std::int32_t day) {
-  const CivilDate c = civil_from_days(day);
-  put_digits(out, c.year, 4);
-  out += '-';
-  put_digits(out, c.month, 2);
-  out += '-';
-  put_digits(out, c.day, 2);
+template <class Records, class Append>
+void write_lines(Sink& sink, std::string& line, std::string_view kind, const Records& records, Append append) {
+  for (const auto& record : records) {
+    line.assign(R"({"kind":")");
+    line += kind;
+    line += R"(","record":)";
+    append(line, record);
+    line += "}\n";
+    sink.write(line);
+  }
 }
 
 }  // namespace
 
-void append_json_string(std::string& out, std::string_view s) {
-  static constexpr char kHex[] = "0123456789abcdef";
-  out += '"';
-  for (const char ch : s) {
-    const auto c = static_cast<unsigned char>(ch);
-    switch (c) {
-      case '"': out += "\\\""; break;
-      case '\\': out += "\\\\"; break;
-      case '\n': out += "\\n"; break;
-      case '\r': out += "\\r"; break;
-      case '\t': out += "\\t"; break;
-      default:
-        if (c < 0x20) {
-          out += "\\u00";
-          out += kHex[c >> 4];
-          out += kHex[c & 0xF];
-        } else {
-          out += ch;  // UTF-8 passes through
-        }
-    }
-  }
-  out += '"';
-}
-
-void append_json_number(std::string& out, double v) {
-  if (!std::isfinite(v)) {
-    out += "null";
-    return;
-  }
-  char buf[32];
-  const auto [ptr, ec] = std::to_chars(buf, buf + sizeof buf, v);  // shortest round-trip form
-  out.append(buf, ec == std::errc{} ? static_cast<std::size_t>(ptr - buf) : 0);
-}
-
-void append_iso_ms(std::string& out, std::int64_t utc_ms) {
-  const std::int64_t day = floor_div(utc_ms, kMsPerDay);
-  std::int64_t rest = utc_ms - day * kMsPerDay;
-  out += '"';
-  append_civil(out, static_cast<std::int32_t>(day));
-  out += 'T';
-  put_digits(out, rest / kMsPerHour, 2);
-  rest %= kMsPerHour;
-  out += ':';
-  put_digits(out, rest / 60'000, 2);
-  rest %= 60'000;
-  out += ':';
-  put_digits(out, rest / 1000, 2);
-  out += '.';
-  put_digits(out, rest % 1000, 3);
-  out += "Z\"";
-}
-
-void append_iso_day(std::string& out, std::int32_t day) {
-  out += '"';
-  append_civil(out, day);
-  out += "T00:00:00.000Z\"";
-}
-
-void append_date(std::string& out, std::int32_t day) {
-  out += '"';
-  append_civil(out, day);
-  out += '"';
-}
-
-// ─── NDJSON records ─────────────────────────────────────────────────────────
-
 void write_ndjson_records(Sink& sink, const HealthExportCollector& c) {
   std::string line;
   line.reserve(512);
-
-  for (const MetricSample& s : c.samples) {
-    const LocalParts lp = local_parts({s.utc_ms, s.tz_min});
-    line.assign(R"({"kind":"samples","record":{"type":")");
-    line += metric_name(s.type);
-    line += R"(","timestamp":)";
-    append_iso_ms(line, s.utc_ms);
-    line += R"(,"tzOffsetMin":)";
-    put_digits(line, s.tz_min, 1);
-    line += R"(,"localDate":)";
-    append_iso_day(line, lp.day);
-    line += R"(,"localHour":)";
-    put_digits(line, lp.hour, 1);
-    line += R"(,"localWeekday":)";
-    put_digits(line, lp.weekday, 1);
-    line += R"(,"qty":)";
-    append_json_number(line, s.qty);
-    line += R"(,"min":)";
-    append_json_number(line, s.min);
-    line += R"(,"avg":)";
-    append_json_number(line, s.avg);
-    line += R"(,"max":)";
-    append_json_number(line, s.max);
-    line += R"(,"unit":")";
-    line += metric_unit(s.type);
-    line += R"(","source":)";
-    append_json_string(line, c.sources.name(s.source));
-    line += "}}\n";
-    sink.write(line);
-  }
-
-  for (const SleepSegment& s : c.sleep) {
-    line.assign(R"({"kind":"sleepStages","record":{"stage":")");
-    line += stage_name(s.stage);
-    line += R"(","start":)";
-    append_iso_ms(line, s.start_ms);
-    line += R"(,"end":)";
-    append_iso_ms(line, s.end_ms);
-    line += R"(,"tzOffsetMin":)";
-    put_digits(line, s.tz_min, 1);
-    line += R"(,"source":)";
-    append_json_string(line, c.sources.name(s.source));
-    line += R"(,"night":)";
-    append_iso_day(line, s.night);
-    line += "}}\n";
-    sink.write(line);
-  }
-
-  for (const DailyActivity& a : c.activity) {
-    line.assign(R"({"kind":"activity","record":{"date":)");
-    append_iso_day(line, a.day);
-    line += R"(,"activeEnergyKcal":)";
-    append_json_number(line, a.active_kcal);
-    line += R"(,"activeEnergyGoal":)";
-    append_json_number(line, a.active_goal_kcal);
-    line += R"(,"exerciseMin":)";
-    append_json_number(line, a.exercise_min);
-    line += R"(,"exerciseGoalMin":)";
-    append_json_number(line, a.exercise_goal_min);
-    line += R"(,"standHours":)";
-    append_json_number(line, a.stand_hours);
-    line += R"(,"standGoalHours":)";
-    append_json_number(line, a.stand_goal_hours);
-    line += "}}\n";
-    sink.write(line);
-  }
+  write_lines(sink, line, "samples", c.samples,
+              [&](std::string& out, const MetricSample& s) { append_sample_json(out, s, c.sources); });
+  write_lines(sink, line, "sleepStages", c.sleep,
+              [&](std::string& out, const SleepSegment& s) { append_sleep_json(out, s, c.sources); });
+  write_lines(sink, line, "workouts", c.workouts,
+              [&](std::string& out, const WorkoutRecord& w) { append_workout_json(out, w, c.sources); });
+  write_lines(sink, line, "activity", c.activity,
+              [&](std::string& out, const DailyActivity& a) { append_activity_json(out, a); });
 }
 
 // ─── Binary records ─────────────────────────────────────────────────────────
@@ -215,6 +81,12 @@ class Frame {
   void i64(std::int64_t v) { le(static_cast<std::uint64_t>(v), 8); }
   void f64(double v) { le(std::bit_cast<std::uint64_t>(v), 8); }
   void raw(std::string_view s) { bytes_.append(s); }
+  /// u16 length + bytes (truncated to 65535 bytes).
+  void str16(std::string_view s) {
+    const std::size_t len = std::min<std::size_t>(s.size(), 0xFFFF);
+    u16(static_cast<std::uint16_t>(len));
+    raw(s.substr(0, len));
+  }
   void clear() { bytes_.clear(); }
   [[nodiscard]] std::string_view view() const noexcept { return bytes_; }
 
@@ -239,13 +111,10 @@ void write_binary_header(Sink& sink) {
 void write_binary_records(Sink& sink, const HealthExportCollector& c) {
   Frame f;
   for (std::size_t id = 0; id < c.sources.size(); ++id) {
-    const std::string& name = c.sources.name(static_cast<std::uint16_t>(id));
-    const std::size_t len = std::min<std::size_t>(name.size(), 0xFFFF);
     f.clear();
     f.u8(0x01);
     f.u16(static_cast<std::uint16_t>(id));
-    f.u16(static_cast<std::uint16_t>(len));
-    f.raw(std::string_view(name).substr(0, len));
+    f.str16(c.sources.name(static_cast<std::uint16_t>(id)));
     sink.write(f.view());
   }
   for (const MetricSample& s : c.samples) {
@@ -280,6 +149,22 @@ void write_binary_records(Sink& sink, const HealthExportCollector& c) {
                            a.stand_goal_hours}) {
       f.f64(v);
     }
+    sink.write(f.view());
+  }
+  for (const WorkoutRecord& w : c.workouts) {
+    f.clear();
+    f.u8(0x05);
+    f.i16(w.tz_min);
+    f.i64(w.start_ms);
+    f.i64(w.end_ms);
+    f.i32(w.local_day);
+    f.i64(w.duration_sec);
+    f.u16(w.source);
+    for (const double v : {w.active_kcal, w.distance_km, w.avg_speed_kmh, w.elevation_up_m, w.step_count,
+                           w.intensity_met, w.avg_hr, w.min_hr, w.max_hr}) {
+      f.f64(v);
+    }
+    f.str16(w.name);
     sink.write(f.view());
   }
 }
@@ -429,6 +314,7 @@ std::string build_summary_json(const RunInfo& run, const HealthExportCollector& 
   j.key("samples").integer(static_cast<std::int64_t>(c.samples.size()));
   j.key("sleepStages").integer(static_cast<std::int64_t>(c.sleep.size()));
   j.key("sleepNights").integer(static_cast<std::int64_t>(c.sleep_night_count()));
+  j.key("workouts").integer(static_cast<std::int64_t>(c.workouts.size()));
   j.key("activityDays").integer(static_cast<std::int64_t>(c.activity.size()));
   j.key("sources").integer(static_cast<std::int64_t>(c.sources.size()));
   j.end_object();

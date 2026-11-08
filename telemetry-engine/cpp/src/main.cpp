@@ -24,6 +24,7 @@
 
 #include "aggregator.hpp"
 #include "health_records.hpp"
+#include "mapped_file.hpp"
 #include "output.hpp"
 #include "xml_parser.hpp"
 

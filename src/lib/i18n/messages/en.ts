@@ -423,6 +423,7 @@ export const en = {
     saving: "Saving to your dashboard",
     reading: "Reading your health records",
     opening: "Opening the file",
+    engineWasm: "C++ engine (WebAssembly)",
     recordsRead: (n: string, saving: boolean) => `${n} records read${saving ? ", saving now" : ""}`,
     dropping: "Drop to import",
     drop: "Drop your Apple Health export here",
