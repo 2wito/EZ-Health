@@ -52,14 +52,23 @@ The engine was checked against the TypeScript parser: on the project's 120-day d
 ```bash
 # once: the Emscripten SDK
 git clone https://github.com/emscripten-core/emsdk.git ~/emsdk
-~/emsdk/emsdk install latest && ~/emsdk/emsdk activate latest
+~/emsdk/emsdk install 7.0.0 && ~/emsdk/emsdk activate 7.0.0   # the version CI pins
 
 source ~/emsdk/emsdk_env.sh
 scripts/build.sh --wasm          # → public/wasm/ez-telemetry.mjs (the .wasm is embedded)
 npx vitest run src/lib/apple-health/wasm-engine.test.ts
 ```
 
-The module is committed, so neither Vercel nor `npm run build` needs Emscripten. It contains only the parser and the record encoders; the threaded aggregator and file mapping are left out.
+The module is committed, so neither Vercel nor `npm run build` needs Emscripten. It contains only the parser and the record encoders; the threaded aggregator and file mapping are left out. The build is reproducible: CI rebuilds it with the same Emscripten version and fails if the committed file differs.
+
+Compared with the TypeScript parser, fed 1 MB chunks the same way the upload worker does, the records came out identical and the WebAssembly engine was faster:
+
+| Export | Records | TypeScript | WebAssembly |
+| --- | --- | --- | --- |
+| Demo, 10 MB | 54,188 | 174 ms | 40 ms (×4.3) |
+| Synthetic, 180 MB | 1,000,000 | 2,717 ms | 317 ms (×8.6) |
+
+These numbers cover parsing only. Unzipping `export.zip` is still done by JSZip and is unchanged.
 
 ## CLI
 
