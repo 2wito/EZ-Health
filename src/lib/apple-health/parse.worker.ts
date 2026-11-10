@@ -120,8 +120,10 @@ scope.onmessage = async (e) => {
     try {
       parsed = await parseFile(file, parser);
     } catch (err) {
-      // Bad input fails the same way in both parsers; anything else in the engine gets a second try in JS.
-      if (parser.engine !== "wasm" || err instanceof ParseFailure || err instanceof NotAHealthExportError) throw err;
+      // A file we couldn't open (damaged zip, no export.xml) fails the same way in both parsers. Anything
+      // else gets a second try in JS, "not an export" included: the parsers count XML errors differently,
+      // so a damaged export the JavaScript parser tolerates must not be rejected by the engine.
+      if (parser.engine !== "wasm" || err instanceof ParseFailure) throw err;
       console.warn("[import] WebAssembly engine failed, parsing again with the JavaScript parser:", err);
       parser = jsParser();
       parsed = await parseFile(file, parser);
